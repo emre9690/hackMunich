@@ -1,0 +1,21 @@
+export const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8000";
+
+export function apiUrl(path) {
+  return `${API_BASE}${path}`;
+}
+
+export async function startRun({ chip, attempts = 1 }) {
+  const res = await fetch(apiUrl("/api/runs"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chip, attempts }),
+  });
+  if (!res.ok) throw new Error(`start run failed: ${res.status}`);
+  return res.json();
+}
+
+export async function fetchChips() {
+  const res = await fetch(apiUrl("/api/chips"));
+  if (!res.ok) throw new Error(`fetch chips failed: ${res.status}`);
+  return res.json();
+}

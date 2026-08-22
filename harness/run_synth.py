@@ -39,18 +39,17 @@ def run_synth(
     agent: str = "synth",
     attempt: int = 1,
     report_dir: pathlib.Path | None = None,
-) -> bool:
+) -> dict:
+    """Runs Yosys synthesis and returns the emitted event dict."""
     spec = load_chip(chip_id)
 
     if target not in SYNTH_COMMANDS:
-        emit(chip=chip_id, branch=branch, agent=agent, stage="synthesize", attempt=attempt,
-             status="error", detail=f"unknown synth target {target!r}, known: {list(SYNTH_COMMANDS)}")
-        return False
+        return emit(chip=chip_id, branch=branch, agent=agent, stage="synthesize", attempt=attempt,
+                     status="error", detail=f"unknown synth target {target!r}, known: {list(SYNTH_COMMANDS)}")
 
     if not rtl_path.exists():
-        emit(chip=chip_id, branch=branch, agent=agent, stage="synthesize", attempt=attempt,
-             status="error", detail=f"RTL file not found: {rtl_path}")
-        return False
+        return emit(chip=chip_id, branch=branch, agent=agent, stage="synthesize", attempt=attempt,
+                     status="error", detail=f"RTL file not found: {rtl_path}")
 
     synth_cmd = SYNTH_COMMANDS[target]
     yosys_script = (
@@ -61,9 +60,8 @@ def run_synth(
     proc = subprocess.run(["yosys", "-p", yosys_script], capture_output=True, text=True)
 
     if proc.returncode != 0:
-        emit(chip=chip_id, branch=branch, agent=agent, stage="synthesize", attempt=attempt,
-             status="error", detail=f"yosys failed: {proc.stderr.strip()[:800]}")
-        return False
+        return emit(chip=chip_id, branch=branch, agent=agent, stage="synthesize", attempt=attempt,
+                     status="error", detail=f"yosys failed: {proc.stderr.strip()[:800]}")
 
     report_dir = report_dir or rtl_path.parent
     report_path = report_dir / f"{rtl_path.stem}_synth_{target}.txt"
@@ -73,11 +71,10 @@ def run_synth(
     lut_count = sum(v for k, v in cell_counts.items() if "LUT" in k.upper())
     summary = ", ".join(f"{k}={v}" for k, v in sorted(cell_counts.items())) or "no cells reported"
 
-    emit(chip=chip_id, branch=branch, agent=agent, stage="synthesize", attempt=attempt,
-         status="pass", passed=lut_count, total=None,
-         artifact_path=str(report_path),
-         detail=f"target={target} module={spec.module_name} LUT4-equiv={lut_count} :: {summary}")
-    return True
+    return emit(chip=chip_id, branch=branch, agent=agent, stage="synthesize", attempt=attempt,
+                 status="pass", passed=lut_count, total=None,
+                 artifact_path=str(report_path),
+                 detail=f"target={target} module={spec.module_name} LUT4-equiv={lut_count} :: {summary}")
 
 
 def _parse_cell_counts(stat_output: str) -> dict[str, int]:
@@ -120,9 +117,9 @@ def main() -> int:
     parser.add_argument("--attempt", type=int, default=1)
     args = parser.parse_args()
 
-    ok = run_synth(args.chip, args.rtl, branch=args.branch, target=args.target,
-                    agent=args.agent, attempt=args.attempt)
-    return 0 if ok else 1
+    event = run_synth(args.chip, args.rtl, branch=args.branch, target=args.target,
+                       agent=args.agent, attempt=args.attempt)
+    return 0 if event["status"] == "pass" else 1
 
 
 if __name__ == "__main__":

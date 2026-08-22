@@ -24,12 +24,13 @@ POLL_INITIAL_DELAY_SECONDS = 5
 POLL_MAX_DELAY_SECONDS = 30
 POLL_BACKOFF_FACTOR = 1.5
 
-# Real observed status_enum values include more than the brief's shorthand
-# (running | blocked | stopped) -- e.g. "finished", "expired". Treat anything
-# other than "running" as terminal so the poller never hangs on an enum value
-# we didn't anticipate.
-RUNNING_STATUS = "running"
-BLOCKED_STATUS = "blocked"
+# The real API's status_enum values are broader than the brief's shorthand
+# (running | blocked | stopped) -- observed in practice: "working" while a
+# session is in progress, "finished" on normal completion. To avoid ever
+# treating an in-progress session as done just because we don't recognize
+# its enum value, we do the opposite of an allowlist: only a known terminal
+# value ends polling: everything else is assumed still in progress.
+TERMINAL_STATUSES = {"blocked", "stopped", "finished", "expired"}
 
 
 class DevinAPIError(RuntimeError):
@@ -51,11 +52,7 @@ class SessionState:
 
     @property
     def is_running(self) -> bool:
-        return self.status_enum == RUNNING_STATUS
-
-    @property
-    def is_blocked(self) -> bool:
-        return self.status_enum == BLOCKED_STATUS
+        return self.status_enum not in TERMINAL_STATUSES
 
 
 def _api_key() -> str:
@@ -99,7 +96,7 @@ def get_session(session_id: str) -> SessionState:
     resp = _request("GET", f"/session/{session_id}")
     return SessionState(
         session_id=session_id,
-        status_enum=resp.get("status_enum", RUNNING_STATUS),
+        status_enum=resp.get("status_enum") or "",
         structured_output=resp.get("structured_output") or {},
         raw=resp,
     )

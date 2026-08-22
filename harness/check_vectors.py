@@ -89,13 +89,16 @@ def run_harness(
     branch: str,
     agent: str = "harness",
     attempt: int = 1,
-) -> bool:
+) -> dict:
+    """Runs the harness and returns the emitted event dict (status/passed/total/detail).
+
+    Callers that just need pass/fail can check event["status"] == "pass".
+    """
     spec = load_chip(chip_id)
 
     if not rtl_path.exists():
-        emit(chip=chip_id, branch=branch, agent=agent, stage="verify", attempt=attempt,
-             status="error", detail=f"RTL file not found: {rtl_path}")
-        return False
+        return emit(chip=chip_id, branch=branch, agent=agent, stage="verify", attempt=attempt,
+                     status="error", detail=f"RTL file not found: {rtl_path}")
 
     with tempfile.TemporaryDirectory() as tmp_str:
         tmp = pathlib.Path(tmp_str)
@@ -107,10 +110,9 @@ def run_harness(
         compile_cmd = ["iverilog", "-o", str(sim_path), str(rtl_path), str(tb_path)]
         compile_proc = subprocess.run(compile_cmd, capture_output=True, text=True)
         if compile_proc.returncode != 0:
-            emit(chip=chip_id, branch=branch, agent=agent, stage="verify", attempt=attempt,
-                 status="error",
-                 detail=f"iverilog compile failed: {compile_proc.stderr.strip()[:800]}")
-            return False
+            return emit(chip=chip_id, branch=branch, agent=agent, stage="verify", attempt=attempt,
+                         status="error",
+                         detail=f"iverilog compile failed: {compile_proc.stderr.strip()[:800]}")
 
         sim_proc = subprocess.run(["vvp", str(sim_path)], capture_output=True, text=True, cwd=tmp)
 
@@ -128,10 +130,9 @@ def run_harness(
             results[vec] = {name: int(b) for name, b in zip(out_names, bits)}
 
         if not results:
-            emit(chip=chip_id, branch=branch, agent=agent, stage="verify", attempt=attempt,
-                 status="error",
-                 detail=f"vvp produced no vectors (stderr: {sim_proc.stderr.strip()[:500]})")
-            return False
+            return emit(chip=chip_id, branch=branch, agent=agent, stage="verify", attempt=attempt,
+                         status="error",
+                         detail=f"vvp produced no vectors (stderr: {sim_proc.stderr.strip()[:500]})")
 
         total = spec.vector_count
         passed = 0
@@ -153,10 +154,9 @@ def run_harness(
 
         ok = passed == total
         detail = "all vectors matched" if ok else _format_failures(failures)
-        emit(chip=chip_id, branch=branch, agent=agent, stage="verify", attempt=attempt,
-             status="pass" if ok else "fail", passed=passed, total=total,
-             artifact_path=str(vcd_dest) if vcd_dest else None, detail=detail)
-        return ok
+        return emit(chip=chip_id, branch=branch, agent=agent, stage="verify", attempt=attempt,
+                     status="pass" if ok else "fail", passed=passed, total=total,
+                     artifact_path=str(vcd_dest) if vcd_dest else None, detail=detail)
 
 
 def main() -> int:
@@ -168,8 +168,8 @@ def main() -> int:
     parser.add_argument("--attempt", type=int, default=1)
     args = parser.parse_args()
 
-    ok = run_harness(args.chip, args.rtl, branch=args.branch, agent=args.agent, attempt=args.attempt)
-    return 0 if ok else 1
+    event = run_harness(args.chip, args.rtl, branch=args.branch, agent=args.agent, attempt=args.attempt)
+    return 0 if event["status"] == "pass" else 1
 
 
 if __name__ == "__main__":
