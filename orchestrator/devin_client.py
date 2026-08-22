@@ -22,9 +22,15 @@ from typing import Any, Callable, Optional
 
 API_BASE = "https://api.devin.ai/v1"
 
-POLL_INITIAL_DELAY_SECONDS = 5
-POLL_MAX_DELAY_SECONDS = 30
-POLL_BACKOFF_FACTOR = 1.5
+POLL_INITIAL_DELAY_SECONDS = 3
+POLL_MAX_DELAY_SECONDS = 10
+POLL_BACKOFF_FACTOR = 1.4
+
+# A single poll hitting a transient network blip shouldn't abandon tracking
+# of a session that's likely still running fine on Devin's side -- only a
+# run of consecutive failures means we're really unable to reach the API.
+POLL_TRANSIENT_RETRY_LIMIT = 5
+POLL_TRANSIENT_RETRY_DELAY_SECONDS = 5
 
 # The real API's status_enum values are broader than the brief's shorthand
 # (running | blocked | stopped) -- observed in practice: "working" while a
@@ -36,6 +42,14 @@ TERMINAL_STATUSES = {"blocked", "stopped", "finished", "expired"}
 
 
 class DevinAPIError(RuntimeError):
+    pass
+
+
+class DevinAPIUnreachable(DevinAPIError):
+    """Network-level failure (DNS, dropped connection, timeout) reaching the
+    Devin API -- transient and local to us, says nothing about whether the
+    remote session itself is still fine. Retried a few times before being
+    treated as a real failure; see poll_until_done."""
     pass
 
 
@@ -87,7 +101,7 @@ def _request(method: str, path: str, *, json_body: Optional[dict] = None) -> dic
         body = e.read().decode(errors="replace")
         raise DevinAPIError(f"Devin API {method} {path} failed: {e.code} {body[:800]}") from e
     except urllib.error.URLError as e:
-        raise DevinAPIError(f"Devin API {method} {path} unreachable: {e}") from e
+        raise DevinAPIUnreachable(f"Devin API {method} {path} unreachable: {e}") from e
 
 
 def ping() -> bool:
@@ -122,6 +136,22 @@ def get_session(session_id: str) -> SessionState:
     )
 
 
+def _get_session_resilient(session_id: str) -> SessionState:
+    """Like get_session, but absorbs a burst of transient network failures
+    instead of letting the first one abandon a session that may well still
+    be running (or already finished) on Devin's side."""
+    last_error: DevinAPIUnreachable | None = None
+    for attempt in range(POLL_TRANSIENT_RETRY_LIMIT):
+        try:
+            return get_session(session_id)
+        except DevinAPIUnreachable as e:
+            last_error = e
+            if attempt < POLL_TRANSIENT_RETRY_LIMIT - 1:
+                time.sleep(POLL_TRANSIENT_RETRY_DELAY_SECONDS)
+    assert last_error is not None
+    raise last_error
+
+
 def poll_until_done(
     session_id: str,
     *,
@@ -136,7 +166,7 @@ def poll_until_done(
     """
     start = time.monotonic()
     delay = POLL_INITIAL_DELAY_SECONDS
-    state = get_session(session_id)
+    state = _get_session_resilient(session_id)
     while True:
         if on_poll:
             on_poll(state)
@@ -147,4 +177,4 @@ def poll_until_done(
             return state, True
         time.sleep(min(delay, max(0.0, timeout_seconds - elapsed)))
         delay = min(delay * POLL_BACKOFF_FACTOR, POLL_MAX_DELAY_SECONDS)
-        state = get_session(session_id)
+        state = _get_session_resilient(session_id)

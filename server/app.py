@@ -84,14 +84,27 @@ async def _pump_process(run_id: str, proc: asyncio.subprocess.Process) -> None:
 
 class RunRequest(BaseModel):
     chip: str
-    attempts: int = 1
-    parallel: bool = False  # Stage 6: run `attempts` branches concurrently
-    fast_demo: bool = False  # skip Testbencher/Style; verification stays exhaustive
 
 
 @app.get("/api/chips")
 def list_chips() -> dict:
     return {"chips": list(available_chips())}
+
+
+@app.get("/api/chips/{chip_id}/ports")
+def chip_ports(chip_id: str) -> dict:
+    """Real pin names/order for the schematic visualization -- straight from
+    the same human-owned ChipSpec the harness verifies against, not a
+    separate hand-maintained list that could drift from the actual RTL."""
+    if chip_id not in available_chips():
+        raise HTTPException(404, f"unknown chip {chip_id!r}")
+    spec = spec_registry.load_chip(chip_id)
+    return {
+        "chip_id": chip_id,
+        "module_name": spec.module_name,
+        "inputs": [p.name for p in spec.inputs],
+        "outputs": [p.name for p in spec.outputs],
+    }
 
 
 @app.get("/api/runs")
@@ -115,30 +128,24 @@ def _next_start_run_id(chip: str) -> int:
 async def start_run(req: RunRequest) -> dict:
     if req.chip not in available_chips():
         raise HTTPException(400, f"unknown chip {req.chip!r}, known: {available_chips()}")
-    if req.attempts < 1:
-        raise HTTPException(400, "attempts must be >= 1")
 
     start_run_id = await asyncio.to_thread(_next_start_run_id, req.chip)
     run_id = f"{req.chip}-{start_run_id}"
+    # Always single-attempt, always fast-demo (skip Testbencher/Style) --
+    # the live demo has a hard wall-clock budget (caps.DEMO_WALLCLOCK_BUDGET_SECONDS)
+    # that only the Coder fail->fix loop + synth can fit inside.
     cmd = [
         sys.executable, "-m", "orchestrator.run",
         "--chip", req.chip,
-        "--attempts", str(req.attempts),
+        "--attempts", "1",
         "--start-run-id", str(start_run_id),
+        "--fast-demo",
     ]
-    if req.parallel:
-        cmd.append("--parallel")
-    if req.fast_demo:
-        cmd.append("--fast-demo")
     proc = await asyncio.create_subprocess_exec(
         *cmd, cwd=str(_REPO_ROOT),
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
     )
-    _runs[run_id] = {
-        "chip": req.chip, "attempts": req.attempts, "parallel": req.parallel,
-        "fast_demo": req.fast_demo,
-        "pid": proc.pid, "status": "running",
-    }
+    _runs[run_id] = {"chip": req.chip, "pid": proc.pid, "status": "running"}
     _processes[run_id] = proc
     asyncio.create_task(_pump_process(run_id, proc))
     return {"run_id": run_id, "pid": proc.pid}
@@ -165,10 +172,31 @@ def _register_chip(chip_id: str) -> None:
 
     existing_ids = re.findall(r'"([^"]+)"', match.group(1))
     if chip_id not in existing_ids:
-        new_line = "_KNOWN_CHIP_IDS = (" + ", ".join(f'"{i}"' for i in existing_ids + [chip_id]) + ")"
+        # Trailing comma after EVERY entry (not just joined between them) --
+        # with exactly one id, ", ".join(...) produces "( "x" )" with no
+        # comma, which Python parses as a parenthesized string, not a
+        # 1-tuple, so available_chips() silently iterates its characters.
+        new_line = "_KNOWN_CHIP_IDS = (" + "".join(f'"{i}", ' for i in existing_ids + [chip_id]) + ")"
         text = text[: match.start()] + new_line + text[match.end():]
         registry_path.write_text(text)
 
+    importlib.reload(spec_registry)
+
+
+def _clear_chip_registry() -> None:
+    """Reset button: empty spec/registry.py's _KNOWN_CHIP_IDS tuple so every
+    demo run starts from a blank chip dropdown -- Add Chip is the only way
+    back in. Non-destructive: the underlying spec/chips/*.py files are left
+    on disk, only the registry listing is cleared, and approving the same
+    chip id again just re-registers and overwrites its file as usual."""
+    registry_path = _REPO_ROOT / "spec" / "registry.py"
+    text = registry_path.read_text()
+    match = re.search(r"_KNOWN_CHIP_IDS = \(([^)]*)\)", text)
+    if not match:
+        raise RuntimeError("could not find _KNOWN_CHIP_IDS tuple in spec/registry.py")
+
+    text = text[: match.start()] + "_KNOWN_CHIP_IDS = ()" + text[match.end():]
+    registry_path.write_text(text)
     importlib.reload(spec_registry)
 
 
@@ -358,29 +386,62 @@ def leaderboard(chip: str) -> dict:
     return {"chip": chip, "entries": rows}
 
 
-_BRANCH_RE = re.compile(r"^attempt/[a-z0-9]+-\d+$")
+_BRANCH_RE = re.compile(r"^attempt/[a-z][a-z0-9_]*-\d+$")
 _RTL_PATH_RE = re.compile(r"^rtl/[\w.-]+\.v$")
 
+# A degraded (not down) connection can make these two calls fail once even
+# though the branch/file genuinely exist -- retry before reporting 404.
+_TRANSIENT_GIT_ERROR_MARKERS = (
+    "could not resolve host", "could not connect to server", "connection timed out",
+    "connection refused", "connection reset by peer", "unable to access",
+    "the remote end hung up unexpectedly", "early eof", "rpc failed",
+)
 
-@app.get("/api/branch-file")
-def get_branch_file(branch: str, path: str) -> PlainTextResponse:
-    """Live code panel: fetch a file's actual content straight from the git
-    branch (the real source of truth), the same way the harness does --
-    never from a local temp file, which the harness deletes right after
-    verifying it."""
+
+def _fetch_branch_file_text(branch: str, path: str) -> str:
+    """Fetch a file's actual content straight from the git branch (the real
+    source of truth), the same way the harness does -- never from a local
+    temp file, which the harness deletes right after verifying it."""
     if not _BRANCH_RE.match(branch):
         raise HTTPException(400, f"invalid branch format: {branch!r}")
     if not _RTL_PATH_RE.match(path):
         raise HTTPException(400, f"invalid rtl path format: {path!r}")
 
-    subprocess.run(["git", "fetch", "origin", branch], cwd=str(_REPO_ROOT),
-                    capture_output=True, text=True, timeout=30)
-    result = subprocess.run(["git", "show", f"origin/{branch}:{path}"], cwd=str(_REPO_ROOT),
-                             capture_output=True, text=True, timeout=30)
-    if result.returncode != 0:
+    for attempt in range(3):
+        try:
+            subprocess.run(["git", "fetch", "origin", branch], cwd=str(_REPO_ROOT),
+                            capture_output=True, text=True, timeout=30)
+            result = subprocess.run(["git", "show", f"origin/{branch}:{path}"], cwd=str(_REPO_ROOT),
+                                     capture_output=True, text=True, timeout=30)
+        except subprocess.TimeoutExpired:
+            if attempt < 2:
+                continue
+            raise HTTPException(504, f"timed out fetching {path} from origin/{branch}")
+        if result.returncode == 0:
+            return result.stdout
+        stderr_lower = result.stderr.lower()
+        if attempt < 2 and any(m in stderr_lower for m in _TRANSIENT_GIT_ERROR_MARKERS):
+            continue
         raise HTTPException(404, f"{path} not found on origin/{branch}")
+    raise HTTPException(404, f"{path} not found on origin/{branch}")
 
-    return PlainTextResponse(result.stdout)
+
+@app.get("/api/branch-file")
+def get_branch_file(branch: str, path: str) -> PlainTextResponse:
+    """Live code panel: displays the fetched file inline."""
+    return PlainTextResponse(_fetch_branch_file_text(branch, path))
+
+
+@app.get("/api/branch-file/download")
+def download_branch_file(branch: str, path: str) -> PlainTextResponse:
+    """Same file as /api/branch-file, served as an attachment so the browser
+    saves it instead of just displaying it -- backs the code panel's
+    Download button."""
+    content = _fetch_branch_file_text(branch, path)
+    filename = path.rsplit("/", 1)[-1]
+    return PlainTextResponse(
+        content, headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
 
 
 _ALLOWED_ARTIFACT_SUFFIXES = {".vcd", ".txt"}
@@ -408,13 +469,15 @@ def get_artifact(path: str) -> PlainTextResponse:
 
 @app.post("/api/reset")
 def reset() -> dict:
-    """Clear the event history and finished/failed run records so the UI
-    (and any fresh SSE connection's replay) starts from a clean slate.
-    Runs still in flight are left alone -- resetting doesn't cancel them,
-    it just stops showing their past events."""
+    """Clear the event history, finished/failed run records, AND the chip
+    registry, so the UI starts from a fully blank slate for a fresh retest --
+    the dropdown is empty again and Add Chip is the only way to populate it.
+    Runs still in flight are left alone -- resetting doesn't cancel them, it
+    just stops showing their past events."""
     _history.clear()
     for run_id in [k for k, v in _runs.items() if v.get("status") != "running"]:
         del _runs[run_id]
+    _clear_chip_registry()
     return {"ok": True}
 
 

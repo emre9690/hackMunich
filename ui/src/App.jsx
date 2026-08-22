@@ -5,38 +5,35 @@ import PipelineGraph from "./components/PipelineGraph";
 import ActivityFeed from "./components/ActivityFeed";
 import AgentStatus from "./components/AgentStatus";
 import ProofPanel from "./components/ProofPanel";
-import Leaderboard from "./components/Leaderboard";
+import SchematicPanel from "./components/SchematicPanel";
 import AddChipModal from "./components/AddChipModal";
 
 export default function App() {
   const { events, connected, clearEvents } = useEvents();
   const [chips, setChips] = useState([]);
-  const [chip, setChip] = useState("74138");
+  const [chip, setChip] = useState(null);
   const [launching, setLaunching] = useState(false);
   const [launchError, setLaunchError] = useState(null);
   const [resetting, setResetting] = useState(false);
   const [killing, setKilling] = useState(false);
   const [killResult, setKillResult] = useState(null);
-  // Stage 6, behind a flag: parallel attempts + leaderboard view. Off by
-  // default so the core single-pipeline demo (attempts=1, sequential) is
-  // never affected.
-  const [attempts, setAttempts] = useState(1);
-  const [parallel, setParallel] = useState(false);
-  const [showLeaderboard, setShowLeaderboard] = useState(false);
-  // Skips Testbencher/Style (fewer sequential Devin calls) for a faster
-  // demo. Vector verification is exhaustive at every setting, always --
-  // this only reduces which agents run, never how thoroughly the RTL is
-  // checked.
-  const [fastDemo, setFastDemo] = useState(false);
   const [showAddChip, setShowAddChip] = useState(false);
 
-  useEffect(() => {
+  function refreshChips(preferred) {
     fetchChips()
       .then((d) => {
         setChips(d.chips);
-        if (d.chips.length) setChip(d.chips[0]);
+        setChip((prev) => {
+          if (preferred && d.chips.includes(preferred)) return preferred;
+          if (prev && d.chips.includes(prev)) return prev;
+          return d.chips[0] ?? null;
+        });
       })
       .catch(() => {});
+  }
+
+  useEffect(() => {
+    refreshChips();
   }, []);
 
   const branch = events.length ? events[events.length - 1].branch : null;
@@ -56,26 +53,12 @@ export default function App() {
   }, [events, launching]);
 
   async function handleLaunch() {
-    // A single attempt is the normal, everyday action this whole UI exists
-    // for -- warning on every click of it is just friction. Only the
-    // elevated case (attempts > 1, especially with --parallel) is what
-    // actually caused an unintended ~12-session spend, so only that case
-    // gets a confirm gate.
-    if (attempts > 1) {
-      const estimatedSessions = attempts * 3;
-      const confirmed = window.confirm(
-        `This launches ${attempts} attempts on ${chip}` +
-          (parallel ? " in PARALLEL" : "") +
-          `, creating up to ~${estimatedSessions} real Devin sessions (billed). Continue?`
-      );
-      if (!confirmed) return;
-    }
-
+    if (!chip) return;
     eventCountAtLaunch.current = events.length;
     setLaunching(true);
     setLaunchError(null);
     try {
-      await startRun({ chip, attempts, parallel: parallel && attempts > 1, fastDemo });
+      await startRun({ chip });
       // Safety net: if no event shows up (e.g. the subprocess died before
       // emitting anything), don't leave the button stuck disabled forever.
       launchTimeoutRef.current = setTimeout(() => setLaunching(false), 20000);
@@ -110,6 +93,8 @@ export default function App() {
     try {
       await resetRuns();
       clearEvents();
+      setChip(null);
+      refreshChips();
     } catch (e) {
       setLaunchError(String(e));
     } finally {
@@ -121,7 +106,7 @@ export default function App() {
     <div className="app">
       <header className="app-header">
         <div className="app-title">
-          <span className="app-title-mark">◆</span> CHIP RECREATION — COMMAND ROOM
+          <span className="app-title-mark">◆</span>reFORGE
         </div>
         <div className="app-header-right">
           {branch && <span className="app-branch">{branch}</span>}
@@ -134,48 +119,16 @@ export default function App() {
         <button className="app-addchip-btn" onClick={() => setShowAddChip(true)}>
           + Add Chip
         </button>
-        <select value={chip} onChange={(e) => setChip(e.target.value)}>
+        <select value={chip ?? ""} onChange={(e) => setChip(e.target.value)} disabled={!chips.length}>
+          {!chips.length && <option value="">No chips yet — Add Chip</option>}
           {chips.map((c) => (
             <option key={c} value={c}>
               {c}
             </option>
           ))}
         </select>
-        <label className="app-attempts-label">
-          Attempts
-          <input
-            type="number"
-            min={1}
-            max={4}
-            value={attempts}
-            onChange={(e) => setAttempts(Math.max(1, Number(e.target.value) || 1))}
-          />
-        </label>
-        <label className="app-parallel-label">
-          <input
-            type="checkbox"
-            checked={parallel}
-            disabled={attempts <= 1}
-            onChange={(e) => setParallel(e.target.checked)}
-          />
-          Parallel
-        </label>
-        <label className="app-fastdemo-label" title="Skips Testbencher/Style. Vector verification stays exhaustive always.">
-          <input
-            type="checkbox"
-            checked={fastDemo}
-            onChange={(e) => setFastDemo(e.target.checked)}
-          />
-          Fast Demo Mode
-        </label>
-        <button onClick={handleLaunch} disabled={launching}>
+        <button onClick={handleLaunch} disabled={launching || !chip}>
           {launching ? "Launching…" : "Launch Attempt"}
-        </button>
-        <button
-          className={`app-toggle-btn ${showLeaderboard ? "app-toggle-btn-active" : ""}`}
-          onClick={() => setShowLeaderboard((v) => !v)}
-        >
-          {showLeaderboard ? "Show Proof Panel" : "Show Leaderboard"}
         </button>
         <button className="app-reset-btn" onClick={handleReset} disabled={resetting}>
           {resetting ? "Resetting…" : "↺ Reset"}
@@ -190,11 +143,12 @@ export default function App() {
       <main className="app-main">
         <section className="app-graph-section">
           <PipelineGraph events={events} starting={launching} />
+          <SchematicPanel events={events} />
           <ActivityFeed events={events} />
           <AgentStatus events={events} />
         </section>
         <section className="app-proof-section">
-          {showLeaderboard ? <Leaderboard chip={chip} /> : <ProofPanel events={events} />}
+          <ProofPanel events={events} />
         </section>
       </main>
 
@@ -204,10 +158,7 @@ export default function App() {
           onClose={() => setShowAddChip(false)}
           onApproved={(newChipId) => {
             setShowAddChip(false);
-            fetchChips().then((d) => {
-              setChips(d.chips);
-              setChip(newChipId);
-            });
+            refreshChips(newChipId);
           }}
         />
       )}

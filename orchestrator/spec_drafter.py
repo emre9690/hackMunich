@@ -14,12 +14,28 @@ itself.
 The uploaded datasheet is committed as-is to the drafts branch (via a
 temporary git worktree, so the shared working tree other concurrent
 pipeline runs depend on staying on `main` is never touched) and Devin
-reads it directly in its own session -- no local text extraction. A
-first version tried local pypdf extraction, but old/scanned datasheets
-are very often image-only PDFs pypdf can't read at all; Devin's own
-session has real tools (and correctly refuses to invent chip behavior
-from memory when a document turns out to be unreadable, rather than
-silently hallucinating what becomes human-reviewed ground truth).
+reads it directly in its own session regardless -- it is still the one
+that ultimately confirms the content, and correctly refuses to invent
+chip behavior from memory when a document turns out to be unreadable,
+rather than silently hallucinating what becomes human-reviewed ground
+truth.
+
+A first version tried local pypdf extraction and abandoned it outright,
+since old/scanned datasheets are very often image-only PDFs pypdf can't
+read at all. That's still true, but it doesn't mean local extraction is
+worthless for the (increasingly common) case of a real text-layer PDF --
+_try_local_pdf_text below is a cheap, free, best-effort attempt: when it
+finds genuine embedded text, that text is handed to Devin as a head
+start in the prompt so it isn't paying OCR/vision time re-deriving prose
+it can already read for free; when the PDF is image-only (as detected by
+the same near-empty-extraction heuristic that made prior sessions
+correctly refuse to hallucinate), this returns None and behavior is
+identical to before -- Devin reads and OCRs the file itself, unaided.
+Tables are explicitly called out as unreliable even when extraction
+"succeeds" -- plain-text extraction doesn't preserve column alignment,
+so a program/function table can come out scrambled even from a real
+text-layer PDF. Devin is told to treat any table-shaped content in the
+extract as a hint only and verify it against the actual rendered page.
 
 AST safety check and structural validation, run locally before a draft
 is ever touched, stay local and free -- no API call for those.
@@ -32,6 +48,7 @@ import pathlib
 import subprocess
 import sys
 import tempfile
+import time
 from itertools import islice
 
 _REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -48,6 +65,60 @@ from orchestrator.pipeline import (  # noqa: E402
 
 DRAFTS_DIR = _REPO_ROOT / "drafts"
 
+# Deliberately high. Many scanned datasheets still carry a thin text layer
+# on every page for a repeated header/footer (title, date, distributor
+# address) even though the actual page content is a pure image -- observed
+# around 200-300 chars for that boilerplate alone. A low threshold would
+# call every one of those pages "usable" and never trigger OCR on the page
+# that actually matters. Real extracted body content ran several thousand
+# chars in testing; this sits well above the boilerplate floor and well
+# below that, so it only fires on genuine content, not page furniture.
+_MIN_CHARS_PER_PAGE_FOR_REAL_TEXT = 500
+
+
+def _try_local_pdf_text(doc_filename: str, doc_bytes: bytes) -> str | None:
+    """Best-effort, local, free text extraction via pypdf -- no OCR, no LLM,
+    no network call. Returns None (never raises) if the file isn't a PDF, or
+    is a scanned/image-only PDF pypdf can't get real text out of; in either
+    case the caller falls back to having Devin read the file itself, exactly
+    as before this existed."""
+    if not doc_filename.lower().endswith(".pdf"):
+        return None
+    try:
+        import io
+
+        from pypdf import PdfReader
+
+        reader = PdfReader(io.BytesIO(doc_bytes))
+        pages = [(p.extract_text() or "").strip() for p in reader.pages]
+    except Exception:
+        return None
+
+    if not pages:
+        return None
+
+    # Judged PER PAGE, not by a whole-document average: a datasheet can mix
+    # real text-layer back matter (ordering info, package/legal boilerplate)
+    # with scanned-image front matter (the pinout and function table that
+    # actually define behavior). An average would let text-heavy pages that
+    # don't matter mask image-only pages that do -- classifying each page on
+    # its own means a page that didn't extract is always explicitly flagged
+    # as still needing OCR, never silently assumed covered.
+    usable = [len(t) >= _MIN_CHARS_PER_PAGE_FOR_REAL_TEXT for t in pages]
+    if not any(usable):
+        return None
+
+    parts = []
+    for i, (text, is_usable) in enumerate(zip(pages, usable)):
+        if is_usable:
+            parts.append(f"--- page {i + 1} (extracted locally) ---\n{text}")
+        else:
+            parts.append(
+                f"--- page {i + 1}: NO usable text extracted locally (likely "
+                f"scanned/image-only -- you must read/OCR this page yourself) ---"
+            )
+    return "\n\n".join(parts)
+
 _REFERENCE_SPEC = (_REPO_ROOT / "spec" / "chips" / "74138.py").read_text()
 
 _ALLOWED_IMPORT_MODULE = "spec.registry"
@@ -58,6 +129,30 @@ _BLOCKED_NAMES = {
 }
 
 _GIT_TIMEOUT_SECONDS = 60
+
+# A degraded (not down) connection can make a single git network op run past
+# the timeout, or fail fast with a DNS/connection error, even though nothing
+# is actually broken; retry a few times before treating it as a real
+# failure. Same fix as orchestrator/pipeline.py.
+_GIT_TIMEOUT_RETRY_LIMIT = 3
+_GIT_TIMEOUT_RETRY_DELAY_SECONDS = 5
+
+_TRANSIENT_GIT_ERROR_MARKERS = (
+    "could not resolve host",
+    "could not connect to server",
+    "connection timed out",
+    "connection refused",
+    "connection reset by peer",
+    "unable to access",
+    "the remote end hung up unexpectedly",
+    "early eof",
+    "rpc failed",
+)
+
+
+def _is_transient_git_error(stderr: str) -> bool:
+    lowered = stderr.lower()
+    return any(marker in lowered for marker in _TRANSIENT_GIT_ERROR_MARKERS)
 
 # Forces Devin to always leave a definitive, self-contained final answer
 # (never a follow-up question) -- see the CRITICAL section in the prompt.
@@ -78,8 +173,30 @@ class DraftValidationError(ValueError):
 
 
 def _run_git(*args: str, cwd: pathlib.Path, check: bool = True) -> subprocess.CompletedProcess:
-    return subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True,
-                           check=check, timeout=_GIT_TIMEOUT_SECONDS)
+    last_timeout: subprocess.TimeoutExpired | None = None
+    result: subprocess.CompletedProcess | None = None
+    for attempt in range(_GIT_TIMEOUT_RETRY_LIMIT):
+        try:
+            result = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True,
+                                     check=False, timeout=_GIT_TIMEOUT_SECONDS)
+        except subprocess.TimeoutExpired as e:
+            last_timeout = e
+            result = None
+            if attempt < _GIT_TIMEOUT_RETRY_LIMIT - 1:
+                time.sleep(_GIT_TIMEOUT_RETRY_DELAY_SECONDS)
+            continue
+        if result.returncode != 0 and _is_transient_git_error(result.stderr) \
+                and attempt < _GIT_TIMEOUT_RETRY_LIMIT - 1:
+            time.sleep(_GIT_TIMEOUT_RETRY_DELAY_SECONDS)
+            continue
+        break
+    if result is None:
+        assert last_timeout is not None
+        raise last_timeout
+    if check and result.returncode != 0:
+        raise subprocess.CalledProcessError(result.returncode, result.args,
+                                             output=result.stdout, stderr=result.stderr)
+    return result
 
 
 def _commit_datasheet_to_branch(branch: str, chip_id: str, doc_filename: str, doc_bytes: bytes) -> str:
@@ -170,7 +287,31 @@ def preview_vectors(module, cap: int = 128) -> dict:
     }
 
 
-def _drafter_prompt(chip_id: str, branch: str, datasheet_path: str) -> str:
+def _drafter_prompt(
+    chip_id: str, branch: str, datasheet_path: str, local_text: str | None = None,
+) -> str:
+    local_text_section = ""
+    if local_text:
+        local_text_section = f"""
+
+A LOCAL, NON-OCR TEXT EXTRACTION of the PDF is included below as a head
+start, so you don't have to spend time re-deriving prose you can already
+read for free. It came from pulling the PDF's embedded text layer, not
+from OCR or vision, so two things can still be wrong with it: (1) any
+page that was actually a scanned image extracted to little/nothing (not
+included below -- open the real file and OCR/read that page yourself,
+same as always), and (2) plain-text extraction does NOT preserve column
+alignment, so any table-shaped content below (function tables, program
+tables, pinouts) can come out scrambled even on a real text page --
+treat tabular content here as a hint only and VERIFY the exact table
+against the actually-rendered document before trusting it for behavior.
+Prose (feature lists, descriptions, notes) is generally reliable as-is.
+
+--- extracted text start ---
+{local_text}
+--- extracted text end ---
+"""
+
     return f"""\
 You are drafting a HUMAN-REVIEWED CANDIDATE golden model for a digital
 logic chip, from an uploaded datasheet. This is NOT the RTL-writing task
@@ -178,22 +319,30 @@ logic chip, from an uploaded datasheet. This is NOT the RTL-writing task
 which a human will review before it is ever trusted as ground truth.
 
 Repository: GitHub repo `{GITHUB_REPO}` (already connected to your Devin
-org via the GitHub App -- clone it if it is not already in your session;
-do not use any other repo). Check out branch `{branch}` -- it already
-exists on origin, do NOT create a new branch.
-
+org via the GitHub App; do not use any other repo). This repo's git
+history is large (~100MB across many unrelated experimental branches) even
+though the actual source is tiny -- do NOT run a plain `git clone`, it
+will pull all of that. Instead clone ONLY this branch, shallowly:
+    git clone --depth 1 --branch {branch} --single-branch \\
+      https://github.com/{GITHUB_REPO}.git .
+Branch `{branch}` already exists on origin -- do NOT create a new branch.
+{local_text_section}
 Task:
-1. `git checkout {branch}`
+1. Confirm you're on branch `{branch}` (the shallow clone above already
+   checks it out)
 2. Read the datasheet at `{datasheet_path}` in this repo (already
-   committed there for you). If it's a PDF and some pages don't yield
-   readable text directly -- a common issue with scanned/image-only
-   pages in old datasheets -- you have full shell access in your
-   environment: use whatever tool you need (OCR, your own document/image
-   understanding, installing packages, etc.) to actually read the real
-   content before proceeding. Do NOT invent or guess the chip's behavior
-   from memory if you cannot read the datasheet -- stop and report that
-   instead, exactly like a prior session correctly did when given a
-   document that turned out to have no readable content.
+   committed there for you) -- unless the extraction above already gives
+   you everything you need (including a verified table), in which case
+   you may skip re-reading pages it already covered accurately. If it's a
+   PDF and some pages don't yield readable text directly -- a common
+   issue with scanned/image-only pages in old datasheets -- you have full
+   shell access in your environment: use whatever tool you need (OCR,
+   your own document/image understanding, installing packages, etc.) to
+   actually read the real content before proceeding. Do NOT invent or
+   guess the chip's behavior from memory if you cannot read the datasheet
+   -- stop and report that instead, exactly like a prior session
+   correctly did when given a document that turned out to have no
+   readable content.
 3. Write a single file `drafts/{chip_id}.py` matching EXACTLY this
    interface (a real example from this repo, spec/chips/74138.py, for a
    DIFFERENT chip -- match its structure exactly, just with the new
@@ -275,7 +424,8 @@ def draft_chip_spec(chip_id: str, doc_filename: str, doc_bytes: bytes) -> dict:
     try:
         ensure_remote_branch(branch)
         datasheet_path = _commit_datasheet_to_branch(branch, chip_id, doc_filename, doc_bytes)
-        prompt = _drafter_prompt(chip_id, branch, datasheet_path)
+        local_text = _try_local_pdf_text(doc_filename, doc_bytes)
+        prompt = _drafter_prompt(chip_id, branch, datasheet_path, local_text)
 
         state, handle = create_and_poll(
             chip_id=chip_id, branch=branch, agent="drafter", stage="draft", attempt=1,

@@ -16,6 +16,7 @@ from __future__ import annotations
 import pathlib
 import subprocess
 import sys
+import time
 
 _REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_REPO_ROOT))
@@ -25,6 +26,7 @@ from harness.events import emit  # noqa: E402
 from harness.run_synth import run_synth  # noqa: E402
 from orchestrator import devin_client  # noqa: E402
 from orchestrator.caps import (  # noqa: E402
+    DEMO_WALLCLOCK_BUDGET_SECONDS,
     MAX_ATTEMPTS_PER_CHIP,
     SESSION_WALLCLOCK_TIMEOUT_SECONDS,
     SessionBudget,
@@ -40,10 +42,59 @@ GITHUB_REPO = "emre9690/hackMunich"
 # with no subprocess left to even inspect.
 _GIT_TIMEOUT_SECONDS = 60
 
+# A degraded (not down) connection can make a single git network op --
+# push/fetch/ls-remote -- run past the timeout, or fail fast with a DNS/
+# connection error, even though nothing is actually broken; retry a few
+# times before treating it as a real failure.
+_GIT_TIMEOUT_RETRY_LIMIT = 3
+_GIT_TIMEOUT_RETRY_DELAY_SECONDS = 5
+
+# Substrings of git's stderr that indicate a transient network failure
+# (DNS, connection refused/reset/timed out) rather than a real git error
+# (bad ref, non-fast-forward, auth) -- only these are worth retrying.
+_TRANSIENT_GIT_ERROR_MARKERS = (
+    "could not resolve host",
+    "could not connect to server",
+    "connection timed out",
+    "connection refused",
+    "connection reset by peer",
+    "unable to access",
+    "the remote end hung up unexpectedly",
+    "early eof",
+    "rpc failed",
+)
+
+
+def _is_transient_git_error(stderr: str) -> bool:
+    lowered = stderr.lower()
+    return any(marker in lowered for marker in _TRANSIENT_GIT_ERROR_MARKERS)
+
 
 def _git(*args: str, check: bool = True) -> subprocess.CompletedProcess:
-    return subprocess.run(["git", *args], cwd=_REPO_ROOT, capture_output=True, text=True,
-                           check=check, timeout=_GIT_TIMEOUT_SECONDS)
+    last_timeout: subprocess.TimeoutExpired | None = None
+    result: subprocess.CompletedProcess | None = None
+    for attempt in range(_GIT_TIMEOUT_RETRY_LIMIT):
+        try:
+            result = subprocess.run(["git", *args], cwd=_REPO_ROOT, capture_output=True,
+                                     text=True, check=False, timeout=_GIT_TIMEOUT_SECONDS)
+        except subprocess.TimeoutExpired as e:
+            last_timeout = e
+            result = None
+            if attempt < _GIT_TIMEOUT_RETRY_LIMIT - 1:
+                time.sleep(_GIT_TIMEOUT_RETRY_DELAY_SECONDS)
+            continue
+        if result.returncode != 0 and _is_transient_git_error(result.stderr) \
+                and attempt < _GIT_TIMEOUT_RETRY_LIMIT - 1:
+            time.sleep(_GIT_TIMEOUT_RETRY_DELAY_SECONDS)
+            continue
+        break
+    if result is None:
+        assert last_timeout is not None
+        raise last_timeout
+    if check and result.returncode != 0:
+        raise subprocess.CalledProcessError(result.returncode, result.args,
+                                             output=result.stdout, stderr=result.stderr)
+    return result
 
 
 def branch_name(chip_id: str, run_id: int) -> str:
@@ -80,6 +131,7 @@ def create_and_poll(
     title: str,
     budget: SessionBudget,
     structured_output_schema: dict | None = None,
+    timeout_override_seconds: float | None = None,
 ) -> tuple[devin_client.SessionState | None, devin_client.SessionHandle]:
     """Create a Devin session and poll it to completion.
 
@@ -119,8 +171,9 @@ def create_and_poll(
                          status="running", session_id=handle.session_id, session_url=handle.url,
                          detail=text[:400])
 
+        effective_timeout = timeout_override_seconds or SESSION_WALLCLOCK_TIMEOUT_SECONDS
         state, timed_out = devin_client.poll_until_done(
-            handle.session_id, timeout_seconds=SESSION_WALLCLOCK_TIMEOUT_SECONDS,
+            handle.session_id, timeout_seconds=effective_timeout,
             on_poll=on_poll,
         )
     finally:
@@ -129,7 +182,7 @@ def create_and_poll(
     if timed_out:
         emit(chip=chip_id, branch=branch, agent=agent, stage=stage, attempt=attempt,
              status="stalled", session_id=handle.session_id, session_url=handle.url,
-             detail=f"still running after {SESSION_WALLCLOCK_TIMEOUT_SECONDS}s wall-clock cap")
+             detail=f"still running after {effective_timeout:.0f}s wall-clock cap")
         return None, handle
 
     # status_enum "blocked" is not reliably "needs human input" in practice --
@@ -173,12 +226,17 @@ You are implementing a Verilog (RTL) design that must exactly reproduce the
 behavior of a discontinued digital logic chip, the {chip_id}.
 
 Repository: GitHub repo `{GITHUB_REPO}` (already connected to your Devin
-org via the GitHub App -- clone it if it is not already in your session;
-do not use any other repo). Check out branch `{branch}` -- it already
-exists on origin, do NOT create a new branch.
+org via the GitHub App; do not use any other repo). This repo's git
+history is large (~100MB across many unrelated experimental branches) even
+though the actual source is tiny -- do NOT run a plain `git clone`, it
+will pull all of that. Instead clone ONLY this branch, shallowly:
+    git clone --depth 1 --branch {branch} --single-branch \\
+      https://github.com/{GITHUB_REPO}.git .
+Branch `{branch}` already exists on origin -- do NOT create a new branch.
 
 Task:
-1. `git checkout {branch}`
+1. Confirm you're on branch `{branch}` (the shallow clone above already
+   checks it out)
 2. Write a single synthesizable Verilog module at `rtl/{chip_id}.v`
    implementing module `{spec.module_name}` with EXACTLY these ports (all
    1-bit signals, no other ports):
@@ -215,8 +273,15 @@ Then commit and push the fix to `{branch}`.
     return prompt
 
 
-def run_coder_loop(chip_id: str, run_id: int, budget: SessionBudget) -> tuple[bool, str]:
-    """Runs the Coder-Devin stage with a capped fail->fix loop. Returns (passed, branch)."""
+def run_coder_loop(
+    chip_id: str, run_id: int, budget: SessionBudget, *, deadline: float | None = None,
+) -> tuple[bool, str]:
+    """Runs the Coder-Devin stage with a capped fail->fix loop. Returns (passed, branch).
+
+    `deadline` (a time.monotonic() timestamp) bounds the loop for a live
+    demo: once passed, no new attempt starts even if MAX_ATTEMPTS_PER_CHIP
+    hasn't been reached -- the retry loop stays visible and real, it just
+    can't run past the demo's time budget."""
     spec = load_chip(chip_id)
     branch = branch_name(chip_id, run_id)
     ensure_remote_branch(branch)
@@ -224,10 +289,21 @@ def run_coder_loop(chip_id: str, run_id: int, budget: SessionBudget) -> tuple[bo
     failing_detail: str | None = None
 
     for attempt in range(1, MAX_ATTEMPTS_PER_CHIP + 1):
+        if deadline is not None and time.monotonic() >= deadline:
+            emit(chip=chip_id, branch=branch, agent="coder", stage="generate", attempt=attempt,
+                 status="stalled",
+                 detail=f"demo time budget reached before attempt {attempt}; stopping the "
+                        f"fail-fix loop here")
+            return False, branch
+
         prompt = _coder_prompt(spec, chip_id, branch, failing_detail)
+        per_attempt_timeout = None
+        if deadline is not None:
+            per_attempt_timeout = max(20.0, deadline - time.monotonic())
         state, handle = create_and_poll(
             chip_id=chip_id, branch=branch, agent="coder", stage="generate", attempt=attempt,
             prompt=prompt, title=f"{chip_id} coder attempt {attempt}", budget=budget,
+            timeout_override_seconds=per_attempt_timeout,
         )
         if state is None:
             return False, branch
@@ -261,9 +337,15 @@ def _testbencher_prompt(spec: ChipSpec, chip_id: str, branch: str) -> str:
     return f"""\
 You are adding extra test coverage for an existing, already-verified Verilog
 module in GitHub repo `{GITHUB_REPO}` (already connected to your Devin org
-via the GitHub App -- clone it if not already in your session; do not use
-any other repo), on branch `{branch}`: rtl/{chip_id}.v (module
-`{spec.module_name}`).
+via the GitHub App; do not use any other repo), on branch `{branch}`:
+rtl/{chip_id}.v (module `{spec.module_name}`).
+
+This repo's git history is large (~100MB across many unrelated
+experimental branches) even though the actual source is tiny -- do NOT run
+a plain `git clone`, it will pull all of that. Instead clone ONLY this
+branch, shallowly:
+    git clone --depth 1 --branch {branch} --single-branch \\
+      https://github.com/{GITHUB_REPO}.git .
 
 This design has ALREADY been exhaustively verified against a human-owned
 golden model (spec/chips/{chip_id}.py, {spec.vector_count} vectors, 100%
@@ -274,7 +356,8 @@ input states) beyond what the golden vectors already cover, as a form of
 regression-safety documentation.
 
 Task:
-1. `git checkout {branch}` (rtl/{chip_id}.v already exists there).
+1. Confirm you're on branch `{branch}` (the shallow clone above already
+   checks it out; rtl/{chip_id}.v already exists there).
 2. Add a new file `rtl/{chip_id}_tb_extra.v` containing a self-contained
    Verilog testbench that instantiates `{spec.module_name}` and exercises
    several specific edge-case scenarios of your choosing, with $display
@@ -324,8 +407,15 @@ def _style_prompt(spec: ChipSpec, chip_id: str, branch: str) -> str:
     return f"""\
 You are cleaning up an existing, already-verified Verilog module in GitHub
 repo `{GITHUB_REPO}` (already connected to your Devin org via the GitHub
-App -- clone it if not already in your session; do not use any other
-repo), on branch `{branch}`: rtl/{chip_id}.v (module `{spec.module_name}`).
+App; do not use any other repo), on branch `{branch}`: rtl/{chip_id}.v
+(module `{spec.module_name}`).
+
+This repo's git history is large (~100MB across many unrelated
+experimental branches) even though the actual source is tiny -- do NOT run
+a plain `git clone`, it will pull all of that. Instead clone ONLY this
+branch, shallowly:
+    git clone --depth 1 --branch {branch} --single-branch \\
+      https://github.com/{GITHUB_REPO}.git .
 
 This design has ALREADY been exhaustively verified against a human-owned
 golden model by an external harness ({spec.vector_count} vectors, 100%
@@ -336,7 +426,8 @@ non-obvious logic. You must NOT change the design's behavior in any way --
 same ports, same functionality, same polarity, same timing.
 
 Task:
-1. `git checkout {branch}` (rtl/{chip_id}.v already exists there).
+1. Confirm you're on branch `{branch}` (the shallow clone above already
+   checks it out; rtl/{chip_id}.v already exists there).
 2. Clean up rtl/{chip_id}.v: formatting, naming of INTERNAL signals only
    (never the module name or port names), and comments. Do not touch
    rtl/{chip_id}_tb_extra.v or anything under /spec/.
@@ -411,7 +502,8 @@ def _run_pipeline_inner(
 ) -> dict:
     result: dict = {"chip": chip_id, "run_id": run_id, "fast_demo": fast_demo}
 
-    coder_passed, branch = run_coder_loop(chip_id, run_id, budget)
+    deadline = time.monotonic() + DEMO_WALLCLOCK_BUDGET_SECONDS
+    coder_passed, branch = run_coder_loop(chip_id, run_id, budget, deadline=deadline)
     result["branch"] = branch
     result["coder_passed"] = coder_passed
     if not coder_passed:

@@ -9,9 +9,22 @@ import threading
 from dataclasses import dataclass, field
 
 MAX_ATTEMPTS_PER_CHIP = 6
+# Default cap for a single Devin session. The RTL-generation pipeline
+# (Coder/Testbencher/Style/Synth) always overrides this down further via
+# DEMO_WALLCLOCK_BUDGET_SECONDS so a live-demo launch stays bounded; the
+# datasheet-drafting flow (spec_drafter.py) deliberately does NOT override
+# it, since OCR-reading a whole scanned datasheet is a one-time setup step,
+# not part of the timed demo path, and can legitimately take several minutes
+# (observed: ~245s for an 8-page scanned datasheet).
 SESSION_WALLCLOCK_TIMEOUT_SECONDS = 15 * 60
 MAX_CONCURRENT_SESSIONS = 4
 MAX_TOTAL_SESSIONS_PER_RUN = 20
+
+# Live-demo bound: the whole pipeline (Coder's fail->fix loop is the only
+# part that can run long) is cut off at this wall-clock budget regardless of
+# MAX_ATTEMPTS_PER_CHIP, so a run either finishes or fails visibly inside the
+# demo window -- it never just keeps going.
+DEMO_WALLCLOCK_BUDGET_SECONDS = 4 * 60
 
 
 class SessionBudgetExceeded(RuntimeError):

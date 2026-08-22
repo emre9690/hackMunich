@@ -20,7 +20,7 @@ export default function ActivityFeed({ events }) {
       <div className="activity-feed-scroll">
         {lines.length === 0 && <div className="agent-status-empty">No activity yet</div>}
         {lines.map((e, i) => (
-          <div className="activity-line" key={i}>
+          <div className={`activity-line ${i === lines.length - 1 ? "activity-line-in" : ""}`} key={i}>
             <span className="activity-time">{formatTime(e.ts)}</span>
             <span className="activity-agent">{e.agent}</span>
             <span className="activity-text">{e.detail}</span>

@@ -4,11 +4,11 @@ export function apiUrl(path) {
   return `${API_BASE}${path}`;
 }
 
-export async function startRun({ chip, attempts = 1, parallel = false, fastDemo = false }) {
+export async function startRun({ chip }) {
   const res = await fetch(apiUrl("/api/runs"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ chip, attempts, parallel, fast_demo: fastDemo }),
+    body: JSON.stringify({ chip }),
   });
   if (!res.ok) throw new Error(`start run failed: ${res.status}`);
   return res.json();
@@ -34,8 +34,20 @@ export async function fetchBranchFile(branch, path) {
   return res.text();
 }
 
+export function branchFileDownloadUrl(branch, path) {
+  return apiUrl(
+    `/api/branch-file/download?branch=${encodeURIComponent(branch)}&path=${encodeURIComponent(path)}`
+  );
+}
+
 export async function fetchChips() {
   const res = await fetch(apiUrl("/api/chips"));
   if (!res.ok) throw new Error(`fetch chips failed: ${res.status}`);
+  return res.json();
+}
+
+export async function fetchChipPorts(chipId) {
+  const res = await fetch(apiUrl(`/api/chips/${encodeURIComponent(chipId)}/ports`));
+  if (!res.ok) throw new Error(`fetch chip ports failed: ${res.status}`);
   return res.json();
 }
