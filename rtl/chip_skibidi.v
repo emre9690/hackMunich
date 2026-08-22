@@ -27,48 +27,59 @@ module bcd_7seg_7447a (
     output wire RBO_n
 );
 
-    wire [3:0] code = {D, C, B, A};
+    // A is the LSB of the BCD input, D the MSB.
+    wire [3:0] bcd_value = {D, C, B, A};
 
     // Active HIGH segment pattern, bit order {a,b,c,d,e,f,g}.
-    reg [6:0] decoded;
+    // Codes 10..15 reproduce the SN7447A's documented non-numeric patterns.
+    reg [6:0] decoded_segments;
     always @* begin
-        case (code)
-            4'd0:  decoded = 7'b1111110; // a b c d e f
-            4'd1:  decoded = 7'b0110000; // b c
-            4'd2:  decoded = 7'b1101101; // a b d e g
-            4'd3:  decoded = 7'b1111001; // a b c d g
-            4'd4:  decoded = 7'b0110011; // b c f g
-            4'd5:  decoded = 7'b1011011; // a c d f g
-            4'd6:  decoded = 7'b0011111; // c d e f g
-            4'd7:  decoded = 7'b1110000; // a b c
-            4'd8:  decoded = 7'b1111111; // a b c d e f g
-            4'd9:  decoded = 7'b1110011; // a b c f g
-            4'd10: decoded = 7'b0001101; // d e g
-            4'd11: decoded = 7'b0011001; // c d g
-            4'd12: decoded = 7'b0100011; // b f g
-            4'd13: decoded = 7'b1001011; // a d f g
-            4'd14: decoded = 7'b0001111; // d e f g
-            default: decoded = 7'b0000000; // 15: blank
+        case (bcd_value)
+            4'd0:    decoded_segments = 7'b1111110; // a b c d e f
+            4'd1:    decoded_segments = 7'b0110000; // b c
+            4'd2:    decoded_segments = 7'b1101101; // a b d e g
+            4'd3:    decoded_segments = 7'b1111001; // a b c d g
+            4'd4:    decoded_segments = 7'b0110011; // b c f g
+            4'd5:    decoded_segments = 7'b1011011; // a c d f g
+            4'd6:    decoded_segments = 7'b0011111; // c d e f g
+            4'd7:    decoded_segments = 7'b1110000; // a b c
+            4'd8:    decoded_segments = 7'b1111111; // a b c d e f g
+            4'd9:    decoded_segments = 7'b1110011; // a b c f g
+            4'd10:   decoded_segments = 7'b0001101; // d e g
+            4'd11:   decoded_segments = 7'b0011001; // c d g
+            4'd12:   decoded_segments = 7'b0100011; // b f g
+            4'd13:   decoded_segments = 7'b1001011; // a d f g
+            4'd14:   decoded_segments = 7'b0001111; // d e f g
+            default: decoded_segments = 7'b0000000; // 15: blank
         endcase
     end
 
-    wire blank_zero = (LT_n == 1'b1) && (RBI_n == 1'b0) && (code == 4'd0);
-    wire lamp_test  = (BI_n == 1'b1) && (LT_n == 1'b0);
+    // Ripple blanking: a leading zero is suppressed only when the ripple carry
+    // in is asserted, the digit is 0, and lamp test is inactive.
+    wire ripple_blank = (LT_n == 1'b1) && (RBI_n == 1'b0) && (bcd_value == 4'd0);
 
+    // Lamp test lights every segment, but blanking input still overrides it.
+    wire lamp_test = (BI_n == 1'b1) && (LT_n == 1'b0);
+
+    // Priority (highest first): blanking input, lamp test, ripple blanking,
+    // then the decoded digit pattern.
     reg [6:0] segments;
     always @* begin
         if (BI_n == 1'b0)
             segments = 7'b0000000;
         else if (lamp_test)
             segments = 7'b1111111;
-        else if (blank_zero)
+        else if (ripple_blank)
             segments = 7'b0000000;
         else
-            segments = decoded;
+            segments = decoded_segments;
     end
 
+    // Outputs are active LOW, so invert the active HIGH pattern.
     assign {a_n, b_n, c_n, d_n, e_n, f_n, g_n} = ~segments;
-    assign RBO_n = (BI_n == 1'b0 || blank_zero) ? 1'b0 : 1'b1;
+
+    // Wire-AND of the internal zero-suppression driver with the BI_n input.
+    assign RBO_n = (BI_n == 1'b0 || ripple_blank) ? 1'b0 : 1'b1;
 
 endmodule
 
