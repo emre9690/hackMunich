@@ -1,0 +1,58 @@
+can you add a "kill all orchestrator" button so i don't get runaway processes. is this good to add?
+
+---
+
+"This launches 1 attempt on 82s100, creating up to ~3 real Devin sessions (billed). Continue?" why is this here
+
+---
+
+what does having the waveform here even do for us, im so confused as of to what this is even doing, why is this taking so long. why is it counting up in binary? what is even going on
+
+---
+
+we don't need the waveform. can you instead make something where you can actively see the verilog code being written and stuff happening. also how should we go about uploading our own spec to this and human reviewed thingy
+
+---
+
+when we click the first button, can you make it so it shows the loading instead of nothing. also how are we differentiating from a gpt wrapper. also its time to add the ability to upload the documentation of the chip before starting to write for any custom chip. also this takes so long to do can you cut some corners so it doesnt take 5 minutes. the output should be similar. maybe something like 1/10th of the test cases instead of all 65000. or something else to make it faster we don't have time for that in the demo. no mistakes.
+
+---
+
+i changed wifi, go now do it it got interrupted
+
+---
+
+can you not use this devin key? also like why do you need to write python code?
+
+---
+
+can you not use this devin key? also like why do you need to write python code?
+
+---
+
+why do you need an api key to read the document
+
+---
+
+push this as mvp
+
+---
+
+reconnected keep going
+
+---
+
+Drafting failed: session ended but drafts/n82s100.py was not found on origin/drafts/n82s100
+
+why
+
+---
+
+can you make the devin thing on normal fast or lite mode to make it faster. also Drafting failed: session ended but drafts/n82.py was not found on origin/drafts/n82. and "How should this draft proceed?
+
+
+A
+Provide the programmed fuse table, exact variant, and a 0/1 convention for Hi-Z
+
+B
+Stop without creating a draft" on devin, there should be none of this. can you make it one click in total at the beginning why tf am i clicking anything in the devin window lol

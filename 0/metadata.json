@@ -1,0 +1,90 @@
+{
+  "cli_version": "0.10.2",
+  "checkpoint_id": "01M0NETECB5RFSH44F0CY15GT5",
+  "session_id": "c819efd9-e89b-4512-9e33-7eeac497624d",
+  "strategy": "manual-commit",
+  "created_at": "2026-08-22T19:23:08.194197Z",
+  "branch": "main",
+  "checkpoints_count": 1,
+  "save_step_count": 1,
+  "files_touched": [],
+  "agent": "Claude Code",
+  "model": "claude-sonnet-5",
+  "turn_id": "4eb75d7349a7",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 1232,
+    "cache_creation_tokens": 1004424,
+    "cache_read_tokens": 239548412,
+    "output_tokens": 432037,
+    "api_call_count": 616
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_01NtEyULEopd4JWpNx59FoSS",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "run"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "4eb75d7349a7",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 798,
+        "end": 799,
+        "entry_ids": [
+          "383f54a8-f251-4f7d-8358-eab7a4932fcd"
+        ],
+        "tool_use_id": "toolu_01NtEyULEopd4JWpNx59FoSS"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01NtEyULEopd4JWpNx59FoSS"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: run",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_01PWgxdgwZ7K8FMxKXbfsSut",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "claude-api"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "4eb75d7349a7",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 2416,
+        "end": 2417,
+        "entry_ids": [
+          "80f6cd18-d707-412e-a1d0-e002213e1503"
+        ],
+        "tool_use_id": "toolu_01PWgxdgwZ7K8FMxKXbfsSut"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01PWgxdgwZ7K8FMxKXbfsSut"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: claude-api",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 20
+  }
+}
