@@ -698,6 +698,166 @@ body {
   color: var(--text-dim);
 }
 
+.app-addchip-btn {
+  background: transparent !important;
+  color: var(--accent) !important;
+  border: 1px solid var(--accent) !important;
+  font-weight: 600 !important;
+}
+
+/* Add-chip modal */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+}
+
+.modal {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  width: 560px;
+  max-width: 92vw;
+  max-height: 85vh;
+  overflow-y: auto;
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.modal-header h3 {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text);
+}
+
+.modal-close {
+  background: transparent !important;
+  border: none !important;
+  color: var(--text-dim) !important;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.modal-body {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.modal-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.modal-field input[type="text"],
+.modal-field input[type="file"] {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.modal-note {
+  font-size: 11px;
+  color: var(--text-dim);
+  line-height: 1.5;
+  margin: 0;
+}
+
+.modal-error {
+  color: var(--c-fail);
+  font-family: var(--mono);
+  font-size: 12px;
+  margin: 0;
+}
+
+.modal-primary {
+  background: var(--accent) !important;
+  color: #04141f !important;
+  font-weight: 700 !important;
+  border: none !important;
+  align-self: flex-start;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.modal-approve {
+  background: var(--c-pass) !important;
+  color: #04140a !important;
+  font-weight: 700 !important;
+  border: none !important;
+}
+
+.modal-reject {
+  background: transparent !important;
+  color: var(--c-fail) !important;
+  border: 1px solid var(--c-fail) !important;
+}
+
+.draft-table-wrap {
+  max-height: 260px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.draft-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.draft-table th,
+.draft-table td {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+  text-align: center;
+  white-space: nowrap;
+}
+
+.draft-table th {
+  position: sticky;
+  top: 0;
+  background: var(--panel-2);
+  color: var(--text-dim);
+}
+
+.draft-code {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  overflow-x: auto;
+  max-height: 240px;
+}
+
 @media (max-width: 960px) {
   .app-main {
     grid-template-columns: 1fr;

@@ -6,6 +6,7 @@ import ActivityFeed from "./components/ActivityFeed";
 import AgentStatus from "./components/AgentStatus";
 import ProofPanel from "./components/ProofPanel";
 import Leaderboard from "./components/Leaderboard";
+import AddChipModal from "./components/AddChipModal";
 
 export default function App() {
   const { events, connected, clearEvents } = useEvents();
@@ -27,6 +28,7 @@ export default function App() {
   // this only reduces which agents run, never how thoroughly the RTL is
   // checked.
   const [fastDemo, setFastDemo] = useState(false);
+  const [showAddChip, setShowAddChip] = useState(false);
 
   useEffect(() => {
     fetchChips()
@@ -129,6 +131,9 @@ export default function App() {
       </header>
 
       <div className="app-controls">
+        <button className="app-addchip-btn" onClick={() => setShowAddChip(true)}>
+          + Add Chip
+        </button>
         <select value={chip} onChange={(e) => setChip(e.target.value)}>
           {chips.map((c) => (
             <option key={c} value={c}>
@@ -192,6 +197,20 @@ export default function App() {
           {showLeaderboard ? <Leaderboard chip={chip} /> : <ProofPanel events={events} />}
         </section>
       </main>
+
+      {showAddChip && (
+        <AddChipModal
+          events={events}
+          onClose={() => setShowAddChip(false)}
+          onApproved={(newChipId) => {
+            setShowAddChip(false);
+            fetchChips().then((d) => {
+              setChips(d.chips);
+              setChip(newChipId);
+            });
+          }}
+        />
+      )}
     </div>
   );
 }

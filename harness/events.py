@@ -12,8 +12,8 @@ import threading
 from datetime import datetime, timezone
 from typing import Any, Literal, Optional
 
-AGENTS = ("coder", "testbencher", "style", "harness", "synth")
-STAGES = ("generate", "verify", "coverage", "cleanup", "synthesize")
+AGENTS = ("coder", "testbencher", "style", "harness", "synth", "drafter")
+STAGES = ("generate", "verify", "coverage", "cleanup", "synthesize", "draft")
 STATUSES = ("running", "pass", "fail", "stalled", "error", "skipped")
 
 # Stage 6 runs multiple attempt pipelines concurrently in separate threads,
@@ -21,8 +21,8 @@ STATUSES = ("running", "pass", "fail", "stalled", "error", "skipped")
 # never interleave into one malformed line for the SSE relay to choke on.
 _PRINT_LOCK = threading.Lock()
 
-Agent = Literal["coder", "testbencher", "style", "harness", "synth"]
-Stage = Literal["generate", "verify", "coverage", "cleanup", "synthesize"]
+Agent = Literal["coder", "testbencher", "style", "harness", "synth", "drafter"]
+Stage = Literal["generate", "verify", "coverage", "cleanup", "synthesize", "draft"]
 Status = Literal["running", "pass", "fail", "stalled", "error", "skipped"]
 
 

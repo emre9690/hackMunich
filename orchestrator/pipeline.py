@@ -69,7 +69,7 @@ def fetch_file_from_branch(branch: str, path_in_repo: str) -> str | None:
     return result.stdout
 
 
-def _create_and_poll(
+def create_and_poll(
     *,
     chip_id: str,
     branch: str,
@@ -221,7 +221,7 @@ def run_coder_loop(chip_id: str, run_id: int, budget: SessionBudget) -> tuple[bo
 
     for attempt in range(1, MAX_ATTEMPTS_PER_CHIP + 1):
         prompt = _coder_prompt(spec, chip_id, branch, failing_detail)
-        state, handle = _create_and_poll(
+        state, handle = create_and_poll(
             chip_id=chip_id, branch=branch, agent="coder", stage="generate", attempt=attempt,
             prompt=prompt, title=f"{chip_id} coder attempt {attempt}", budget=budget,
         )
@@ -290,7 +290,7 @@ def run_testbencher_stage(chip_id: str, branch: str, run_id: int, budget: Sessio
     """Runs Testbencher-Devin once (no loop-back), then re-runs the harness."""
     spec = load_chip(chip_id)
     prompt = _testbencher_prompt(spec, chip_id, branch)
-    state, handle = _create_and_poll(
+    state, handle = create_and_poll(
         chip_id=chip_id, branch=branch, agent="testbencher", stage="coverage", attempt=1,
         prompt=prompt, title=f"{chip_id} testbencher", budget=budget,
     )
@@ -349,7 +349,7 @@ def run_style_stage(chip_id: str, branch: str, run_id: int, budget: SessionBudge
     """Runs Style-Devin once (no loop-back), then re-runs the harness to confirm no regressions."""
     spec = load_chip(chip_id)
     prompt = _style_prompt(spec, chip_id, branch)
-    state, handle = _create_and_poll(
+    state, handle = create_and_poll(
         chip_id=chip_id, branch=branch, agent="style", stage="cleanup", attempt=1,
         prompt=prompt, title=f"{chip_id} style cleanup", budget=budget,
     )

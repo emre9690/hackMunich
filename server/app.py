@@ -9,6 +9,7 @@ its stdout lines. It never parses Devin's natural-language chatter.
 from __future__ import annotations
 
 import asyncio
+import importlib
 import json
 import os
 import pathlib
@@ -16,9 +17,10 @@ import re
 import signal
 import subprocess
 import sys
+import tempfile
 from typing import AsyncIterator
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import BaseModel
@@ -26,7 +28,14 @@ from pydantic import BaseModel
 _REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_REPO_ROOT))
 
-from spec.registry import available_chips  # noqa: E402
+from spec import registry as spec_registry  # noqa: E402
+
+
+def available_chips() -> tuple[str, ...]:
+    # Goes through the module reference (not a bound function) so that
+    # importlib.reload(spec_registry) after a draft approval takes effect
+    # immediately, without needing a server restart.
+    return spec_registry.available_chips()
 
 app = FastAPI(title="Chip-Recreation Command Room")
 app.add_middleware(
@@ -133,6 +142,124 @@ async def start_run(req: RunRequest) -> dict:
     _processes[run_id] = proc
     asyncio.create_task(_pump_process(run_id, proc))
     return {"run_id": run_id, "pid": proc.pid}
+
+
+# ---------------------------------------------------------------------------
+# Custom chip drafting: upload a datasheet -> Devin drafts to /drafts/ (never
+# /spec/) -> human reviews the actual truth table -> explicit approve moves
+# it into /spec/chips/ and registers it. See orchestrator/spec_drafter.py.
+# ---------------------------------------------------------------------------
+
+_CHIP_ID_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
+
+
+def _register_chip(chip_id: str) -> None:
+    """Human-triggered-only: called from the approve endpoint, never from
+    drafting. Appends chip_id to spec/registry.py's _KNOWN_CHIP_IDS tuple
+    and reloads the module so it takes effect without a server restart."""
+    registry_path = _REPO_ROOT / "spec" / "registry.py"
+    text = registry_path.read_text()
+    match = re.search(r"_KNOWN_CHIP_IDS = \(([^)]*)\)", text)
+    if not match:
+        raise RuntimeError("could not find _KNOWN_CHIP_IDS tuple in spec/registry.py")
+
+    existing_ids = re.findall(r'"([^"]+)"', match.group(1))
+    if chip_id not in existing_ids:
+        new_line = "_KNOWN_CHIP_IDS = (" + ", ".join(f'"{i}"' for i in existing_ids + [chip_id]) + ")"
+        text = text[: match.start()] + new_line + text[match.end():]
+        registry_path.write_text(text)
+
+    importlib.reload(spec_registry)
+
+
+@app.post("/api/drafts")
+async def create_draft(chip_id: str = Form(...), file: UploadFile = File(...)) -> dict:
+    if not _CHIP_ID_RE.match(chip_id):
+        raise HTTPException(400, "chip_id must be lowercase letters/digits/underscore, starting "
+                                  "with a letter")
+    if chip_id in available_chips():
+        raise HTTPException(400, f"chip_id {chip_id!r} is already a registered chip")
+
+    contents = await file.read()
+    if not contents:
+        raise HTTPException(400, "uploaded file is empty")
+
+    tmp_dir = pathlib.Path(tempfile.mkdtemp(prefix="draft_upload_"))
+    doc_path = tmp_dir / (file.filename or "datasheet.txt")
+    doc_path.write_bytes(contents)
+
+    cmd = [
+        sys.executable, "-m", "orchestrator.draft_chip",
+        "--chip-id", chip_id, "--doc-path", str(doc_path),
+    ]
+    proc = await asyncio.create_subprocess_exec(
+        *cmd, cwd=str(_REPO_ROOT),
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
+    )
+    run_id = f"draft-{chip_id}"
+    _runs[run_id] = {"chip": chip_id, "kind": "draft", "pid": proc.pid, "status": "running"}
+    _processes[run_id] = proc
+    asyncio.create_task(_pump_process(run_id, proc))
+    return {"run_id": run_id, "chip_id": chip_id, "pid": proc.pid}
+
+
+@app.get("/api/drafts/{chip_id}")
+def get_draft(chip_id: str) -> dict:
+    from orchestrator.spec_drafter import (
+        DRAFTS_DIR, DraftValidationError, load_draft_module,
+        preview_vectors, validate_draft_source, validate_draft_structure,
+    )
+
+    path = DRAFTS_DIR / f"{chip_id}.py"
+    if not path.exists():
+        raise HTTPException(404, f"no draft found for chip_id {chip_id!r}")
+
+    source = path.read_text()
+    try:
+        validate_draft_source(source)
+        module = load_draft_module(path)
+        validate_draft_structure(module)
+        preview = preview_vectors(module)
+    except DraftValidationError as e:
+        raise HTTPException(422, f"draft failed validation: {e}") from e
+
+    return {"chip_id": chip_id, "source": source, "preview": preview}
+
+
+@app.post("/api/drafts/{chip_id}/approve")
+def approve_draft(chip_id: str) -> dict:
+    from orchestrator.spec_drafter import (
+        DRAFTS_DIR, DraftValidationError, load_draft_module,
+        validate_draft_source, validate_draft_structure,
+    )
+
+    draft_path = DRAFTS_DIR / f"{chip_id}.py"
+    if not draft_path.exists():
+        raise HTTPException(404, f"no draft found for chip_id {chip_id!r}")
+
+    source = draft_path.read_text()
+    try:
+        # Re-validate right before trusting it -- the draft file could in
+        # principle have been edited on disk since it was last checked.
+        validate_draft_source(source)
+        module = load_draft_module(draft_path)
+        validate_draft_structure(module)
+    except DraftValidationError as e:
+        raise HTTPException(422, f"draft failed validation, refusing to approve: {e}") from e
+
+    target_path = _REPO_ROOT / "spec" / "chips" / f"{chip_id}.py"
+    target_path.write_text(source)
+    draft_path.unlink()
+    _register_chip(chip_id)
+
+    return {"ok": True, "chip_id": chip_id}
+
+
+@app.post("/api/drafts/{chip_id}/reject")
+def reject_draft(chip_id: str) -> dict:
+    from orchestrator.spec_drafter import DRAFTS_DIR
+    (DRAFTS_DIR / f"{chip_id}.py").unlink(missing_ok=True)
+    return {"ok": True, "chip_id": chip_id}
 
 
 @app.post("/api/kill-all")

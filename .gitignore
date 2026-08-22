@@ -18,5 +18,8 @@ ui/.vite/
 *.out
 *_synth_*.txt
 
+# AI-drafted, human-not-yet-reviewed chip specs -- never trusted, never committed
+drafts/
+
 # editor / OS
 .DS_Store
