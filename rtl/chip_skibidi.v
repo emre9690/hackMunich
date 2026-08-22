@@ -9,8 +9,9 @@
 //   RBI_n == 0 and digit == 0                  -> all segments off (ripple blank)
 //   otherwise                                  -> decode digit 0..15
 //
-// RBO_n is low only for the ripple-blanking condition
-// (LT_n == 1, RBI_n == 0, digit == 0000).
+// RBO_n is low for the ripple-blanking condition
+// (LT_n == 1, RBI_n == 0, digit == 0000) and also whenever BI_n is low,
+// since BI_n/RBO_n share a pin on the real device.
 
 module bcd_7seg_7447a (
     input  wire A,
@@ -74,6 +75,6 @@ module bcd_7seg_7447a (
     assign f_n = seg[1];
     assign g_n = seg[0];
 
-    assign RBO_n = ripple_blank ? 1'b0 : 1'b1;
+    assign RBO_n = (ripple_blank || (BI_n == 1'b0)) ? 1'b0 : 1'b1;
 
 endmodule
