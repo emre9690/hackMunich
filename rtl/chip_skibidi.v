@@ -75,7 +75,9 @@ module bcd_7seg_7447a (
     assign f_n = ~seg[1];
     assign g_n = ~seg[0];
 
-    assign RBO_n = ripple_blank ? 1'b0 : 1'b1;
+    // BI/RBO is a shared pin: RBO_n is low when the digit is blanked by BI_n
+    // as well as during ripple blanking.
+    assign RBO_n = (ripple_blank || (BI_n == 1'b0)) ? 1'b0 : 1'b1;
 
 endmodule
 
