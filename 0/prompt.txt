@@ -1,0 +1,5 @@
+everything is perfect. the next step is to implement a download/export function that allows all the verilog files for the chip created to be downloaded in an efficient and clearly organised folder. don't waste too much time doing this, it just has to work and work fast
+
+---
+
+your new code has broken it: pipeline crashed unexpectedly: DevinAPIUnreachable('Devin API GET /session/devin-242f80be2088487388fa6f99ec2f09e2 unreachable: <urlopen error [Errno 8] nodename nor servname provided, or not known>'). please fix
