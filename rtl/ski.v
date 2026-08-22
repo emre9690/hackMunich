@@ -28,7 +28,7 @@ module bcd_7seg_7447 (
     wire [3:0] val = {D, C, B, A};
 
     wire zero        = (val == 4'd0);
-    wire ripple_blank = (RBI_n == 1'b0) && zero;
+    wire ripple_blank = (RBI_n == 1'b0) && zero && (LT_n == 1'b1);
 
     reg [6:0] seg; // {a,b,c,d,e,f,g}, active LOW
 
@@ -37,7 +37,7 @@ module bcd_7seg_7447 (
             seg = 7'b1111111;              // blanked
         else if (LT_n == 1'b0)
             seg = 7'b0000000;              // lamp test: all segments on
-        else if (ripple_blank)
+        else if ((RBI_n == 1'b0) && zero)
             seg = 7'b1111111;              // leading-zero blanked
         else begin
             case (val)
@@ -63,7 +63,7 @@ module bcd_7seg_7447 (
 
     assign {a, b, c, d, e, f, g} = seg;
 
-    assign RBO_n = ripple_blank ? 1'b0 : 1'b1;
+    assign RBO_n = BI_n & ~ripple_blank;
 
 endmodule
 
