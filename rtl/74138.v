@@ -1,6 +1,10 @@
 // 74138 - 3-to-8 line decoder/demultiplexer
-// Enabled iff G1 == 1 && G2A_n == 0 && G2B_n == 0.
-// Outputs are active LOW: exactly one output LOW when enabled, all HIGH otherwise.
+//
+// Enable logic: the decoder is enabled only when G1 == 1 and both
+// active-low enables G2A_n and G2B_n are 0.
+// Outputs are active LOW: when enabled, exactly one output (selected by the
+// binary address A2..A0) is driven LOW and the rest stay HIGH; when disabled,
+// all outputs are HIGH regardless of the address inputs.
 module decoder_74138 (
     input  wire A0,
     input  wire A1,
@@ -18,15 +22,19 @@ module decoder_74138 (
     output wire Y7
 );
 
-    wire enabled = G1 & ~G2A_n & ~G2B_n;
+    // High only when all three enable conditions are satisfied.
+    wire enable = G1 & ~G2A_n & ~G2B_n;
 
-    assign Y0 = ~(enabled & ~A2 & ~A1 & ~A0);
-    assign Y1 = ~(enabled & ~A2 & ~A1 &  A0);
-    assign Y2 = ~(enabled & ~A2 &  A1 & ~A0);
-    assign Y3 = ~(enabled & ~A2 &  A1 &  A0);
-    assign Y4 = ~(enabled &  A2 & ~A1 & ~A0);
-    assign Y5 = ~(enabled &  A2 & ~A1 &  A0);
-    assign Y6 = ~(enabled &  A2 &  A1 & ~A0);
-    assign Y7 = ~(enabled &  A2 &  A1 &  A0);
+    // Each output decodes one address combination (A2 A1 A0). The outer
+    // inversion produces the active-low behavior, and it also forces every
+    // output HIGH whenever `enable` is low.
+    assign Y0 = ~(enable & ~A2 & ~A1 & ~A0);  // address 3'b000
+    assign Y1 = ~(enable & ~A2 & ~A1 &  A0);  // address 3'b001
+    assign Y2 = ~(enable & ~A2 &  A1 & ~A0);  // address 3'b010
+    assign Y3 = ~(enable & ~A2 &  A1 &  A0);  // address 3'b011
+    assign Y4 = ~(enable &  A2 & ~A1 & ~A0);  // address 3'b100
+    assign Y5 = ~(enable &  A2 & ~A1 &  A0);  // address 3'b101
+    assign Y6 = ~(enable &  A2 &  A1 & ~A0);  // address 3'b110
+    assign Y7 = ~(enable &  A2 &  A1 &  A0);  // address 3'b111
 
 endmodule
