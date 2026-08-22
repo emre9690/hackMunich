@@ -1,0 +1,263 @@
+fix the error its not working
+
+---
+
+give good example of a datasheet
+
+---
+
+i can add my own its a bit complex
+
+---
+
+"Blocked — no golden model can be drafted. The datasheet is the Signetics 82S100/82S101 FPLA (16 inputs, 48 product terms, 8 outputs), a field-programmable device shipped unprogrammed. I read all 8 pages (including OCR/vision on the image-only pages): the 16×48×8 program table form (p.31) is completely blank, so the datasheet defines no specific logic function — output behavior depends entirely on the customer's fuse programming (the repo's existing spec/chips/82s100.py instance came from a separate human "build brief §7", not the datasheet). Additionally, the 82S100's tri-state outputs go Hi-Z when CE is disabled, which a plain 0/1 port interface can't represent. Nothing was committed." why not????????
+
+---
+
+can you make it work with this chip
+
+---
+
+is there a tool that reads a pdf instantly instead of AI doing it.
+
+---
+
+is there any way to extract text from these documents? if not, how can we verify that the spec is valid for input
+
+---
+
+how is the golden vector thing decided
+
+---
+
+how does devin find the spec does it research
+
+---
+
+what if it does not have a datasheet
+
+---
+
+in the case where the spec document is not provided, could we give devin the option to go look for a valid datasheet and base its coding and testing on that
+
+---
+
+ok sure that works, maybe the datasheet is presented in the visualization windows in the website, also on that note, how was this able to function before without having a datasheet
+
+---
+
+ok what do you recommend we do right now
+
+---
+
+it has worked with the other two, the 82s100 and the 74138.
+
+---
+
+find a datasheet that we would be able to run through devon
+
+---
+
+ok well the idea is that we upload this, so give me the url to download the pdf so we can test ut out\
+
+---
+
+drafting failed: DevinAPIError('Devin API GET /session/devin-7f05d588125a4c93a418e91569ec666d unreachable: <urlopen error [Errno 8] nodename nor servname provided, or not known>')
+
+Drafted drafts/ss.py on branch drafts/ss (commit f64880c). The datasheet is TI SDLS111 (SN5446A/'47A/'48/SN54LS47/'LS48/'LS49 BCD-to-seven-segment decoders); pages were image-only scans, so I rendered and read them. I modeled the 'LS49 (function table T3): the '46A/'47A/'LS47/'48/'LS48 all share a bidirectional wire-AND BI/RBO pin that a plain 1-bit unidirectional port interface can't represent, and the docstring says so for the reviewer. Passes the repo's own AST + structural validators (32 exhaustive vectors).
+
+---
+
+harness
+verify
+ERROR
+pipeline crashed unexpectedly: TimeoutExpired(['git', 'push', 'origin', 'HEAD:refs/heads/attempt/chip_skibidi-01'], 60)
+
+---
+
+pipeline crashed unexpectedly: RuntimeError("failed to create remote branch attempt/chip_skibidi-01: fatal: unable to access 'https://github.com/emre9690/hackMunich.git/': Could not resolve host: github.com\n")
+
+---
+
+Live code
+Could not load rtl/chip_skibidi.v (Error: fetch branch file failed: 400) - we could not see the live code in 
+
+we also need to be able to download the rtl files as outputs once done.
+
+make the visual more like its doing stuff (live code for example) and its like working also use helvetica font and maybe a white background with good colour scheme
+
+---
+
+harness
+verify
+ERROR
+pipeline crashed unexpectedly: DevinAPIError('DEVIN_API_KEY is not set in the environment')
+Also can you change the text in the top left to reFORGE and some text about what it does instead of some random rubbish like chip...
+
+no mistakes
+
+---
+
+do i have to clone the repo in the styling stage? this takes so long for the live demo we don't have all the time in the world. if you can fix, do it. can you also make the ui of the pipeline less AI generated. 
+
+Make the live code continuiously get generated not all appear at once
+
+---
+
+there is a whitespace next to coder, remove that. 
+
+also why is everythign soooo slow. even the shallow copy. and everything
+
+---
+
+# Patch Brief — Full Devinization + Live Gate Visualization
+
+## Context: where we are
+This project was built from an original staged brief (chip-recreation MVP: three Devin
+agents — Coder, Testbencher, Style — coordinated via a git-as-bus pipeline, gated by a
+human-authored golden-vector harness, real Devin REST API, React+Vite command-room UI,
+targeting the 74138 decoder primarily and the 82S100 FPLA secondarily, FPGA-targeted Yosys
+synthesis). That system is the **working core**. This brief ADDS Devin-native capabilities
+on top of it, plus a new live gate-visualization feature. It does not replace the original
+architecture's core guarantees:
+
+- **The harness is the sole source of pass/fail truth.** No Devin agent, feature, or
+  workflow may override this.
+- **Golden vectors are immutable ground truth**, human-authored, never touched by any agent.
+- **The demo must keep working at every checkpoint.** If a section below destabilizes
+  something that currently works, STOP, revert that section, and report — do not push
+  through.
+
+## How to work on this
+- Work through the sections **in the order given** — the order is deliberate; later
+  sections depend on earlier ones being solid, and risk increases as you go down the list.
+- After EACH section: STOP. Report what changed (exact files/lines), how you verified it,
+  and explicit confirmation the previously-working demo path still runs end-to-end. Wait
+  for approval before continuing.
+- Never hardcode or print secrets (`DEVIN_API_KEY`, `DEVIN_ORG_ID`).
+- If a section is ambiguous or looks like it would require touching the git-as-bus control
+  flow, the harness, or the existing verified UI wiring in a risky way — STOP and ask before
+  writing code.
+
+---
+
+## Section 0 — Ground truth check (no edits)
+Report:
+1. **API version in use.** Base URL `https://api.devin.ai/v1/...` (v1) or
+   `https://api.devin.ai/v3/organizations/{org_id}/...` (v3)? Paste the current
+   session-creation request body.
+2. **Session-creation call sites.** How many places call `POST .../sessions`? File paths?
+   Is it centralized in one client module?
+3. **Current pipeline control flow.** Confirm: is the Coder→Testbencher→Style sequencing
+   currently done by a Python orchestrator (polling, gating on harness results), as
+   originally specified? Describe its actual current shape in ~5 lines.
+4. **Current state of Devin features 1–4** (snapshot, tags, knowledge, structured output) —
+   were these already patched in? If yes, note what exists so you don't duplicate work.
+5. Confirm `DEVIN_API_KEY` (and `DEVIN_ORG_ID` if v3) are present as env vars.
+
+---
+
+## Section 1 — Snapshot / environment prep (if not already done)
+**Goal:** sessions start with `iverilog` + `yosys` preinstalled.
+- v1: create a **snapshot**. v3: create a **blueprint** that builds one.
+- Script it (`setup/create_snapshot.py`) if possible; print the resulting `snapshot_id`.
+  If it must be done via dashboard, STOP and give exact steps.
+- Add `snapshot_id` to session-creation payload, from config/env.
+- **Verify:** one session's logs show no toolchain reinstall. Report.
+
+## Section 2 — Tags (if not already done)
+**Goal:** every session labeled for grouping/aggregation.
+- Add `tags`: `["chip:<id>", "agent:<coder|testbencher|style>", "run:<run_id>"]`.
+- If the leaderboard/UI aggregates sessions, prefer filtering by `run:<run_id>` tag over
+  manual id tracking, only if low-risk to change.
+- **Verify:** tags present on fetched session objects. Report.
+
+## Section 3 — Knowledge entry (if not already done)
+**Goal:** "golden vectors are immutable ground truth" enforced via native Devin Knowledge,
+not just prompt text.
+- Create one knowledge note with that rule (approximate wording as in prior patch: never
+  modify/weaken/override golden vectors; conform RTL to them, not vice versa).
+- Attach via `knowledge_ids` on every Coder/Testbencher/Style session.
+- **Verify:** note exists, id accepted on session creation. Report.
+
+## Section 4 — Structured output (if not already done, ADDITIVE ONLY)
+**Goal:** Devin's own machine-readable progress as a SECONDARY signal alongside — never
+replacing — the harness-emitted events that remain the UI's pass/fail source of truth.
+- `structured_output_schema` at session creation:
+  ```json
+  {"agent":"coder|testbencher|style","chip":"","attempt":0,
+   "files_written":[],"self_report_status":"working|done|blocked","notes":""}
+  ```
+- Agents update it as they work. Orchestrator polls `structured_output` +
+  `status_enum`, surfaces it in the UI as a secondary per-agent detail line.
+- **Verify:** structured output populates live during a run. Report.
+
+## Section 5 — Playbooks
+**Goal:** encode each agent's standing behavior as a reusable Devin Playbook, separating
+"how this agent always behaves" (playbook) from "what's happening this run" (live prompt).
+- Create three playbooks:
+  - **Coder playbook:** implement the spec as `/rtl/<chip>.v` on the current branch, commit,
+    push; on receiving failing vectors, fix and re-commit; never modify golden vectors.
+  - **Testbencher playbook:** add edge-case testbench coverage beyond the golden vectors;
+    never override or weaken golden vectors as truth; commit.
+  - **Style playbook:** clean formatting/naming/comments only; never change behavior; commit.
+- Move the static portion of each agent's current prompt into its playbook. Keep the
+  dynamic portion (chip id, spec, current failing vectors, branch name) in the per-call
+  `prompt` argument, referencing the playbook via `playbook_id`.
+- **Verify:** run one Coder session with playbook + dynamic prompt combined; confirm
+  behavior matches the pre-playbook version. Report file/prompt diffs clearly.
+
+## Section 6 — Gate-level visualization on synthesis (the "wow" feature)
+**Goal:** when synthesis completes for an attempt, render the ACTUAL synthesized gate
+netlist as an animating circuit graph in the UI — nodes and wires drawing themselves in.
+... (67 lines left)
+
+After this, There is meant to be a line between the coder box and the harness box. This line is only half drawn and not consistent with the rest of the pipeline. Fix it
+
+---
+
+ok, literally everything is broken. can you make it work in under 2 minutes somehow and make it work.
+
+---
+
+Okay, this is a very important refactor. I want you to, so you know how there's a drop down with 74138 and 82S100 and chip skibidy? I want all of those to be gone, but I also want the reset button to remove those, so we can, like, retest every time. And also the visuals of the pipeline need to be better. Just remake it, because the spacing is really messed up, and make it so the text doesn't overflow. And we want to add a chip, and we want to make it so there is a visual of the hardware when the code is being generated. And if possible, the code should be generated more in real time instead of all at once after the devin finishes running. I can see how this could be a problem, because after devin runs, or while devin is running, it's, like, in the devin environment, and then it, like, kind of gets— gives all of it to localhost. I see how that's a problem. It doesn't need to be perfect. Just after devin's done, we just need to make it, like, look like it's generated code on localhost, like, so, like, slow generation, if you know what I mean. And also just remove the text that says . Okay, just remove attempts. We don't need that feature. Just remove parallel. We don't need that feature. Just remove fast demo mode. We don't need that feature. Remove show leaderboard. We don't need that feature. Remove data sheet, arrow verified RTL autonomously. Remove that text. That is the most useless text. And then while the code is generating, or after it has generated, create some sort of visual to show what the schematic looks like. And it has to be good enough to impress the judges.
+
+---
+
+Okay, this is a very important refactor. I want you to, so you know how there's a drop down with 74138 and 82S100 and chip skibidy? I want all of those to be gone, but I also want the reset button to remove those, so we can, like, retest every time. And also the visuals of the pipeline need to be better. Just remake it, because the spacing is really messed up, and make it so the text doesn't overflow. And we want to add a chip, and we want to make it so there is a visual of the hardware when the code is being generated. And if possible, the code should be generated more in real time instead of all at once after the devin finishes running. I can see how this could be a problem, because after devin runs, or while devin is running, it's, like, in the devin environment, and then it, like, kind of gets— gives all of it to localhost. I see how that's a problem. It doesn't need to be perfect. Just after devin's done, we just need to make it, like, look like it's generated code on localhost, like, so, like, slow generation, if you know what I mean. And also just remove the text that says . Okay, just remove attempts. We don't need that feature. Just remove parallel. We don't need that feature. Just remove fast demo mode. We don't need that feature. Remove show leaderboard. We don't need that feature. Remove data sheet, arrow verified RTL autonomously. Remove that text. That is the most useless text. And then while the code is generating, or after it has generated, create some sort of visual to show what the schematic looks like. And it has to be good enough to impress the judges.
+
+can you test it end to end with the pdf that i am putting in named sn74ls47.pdf. analyze why this is taking so long, and make sure the demo takes under 4 minutes no matter what. it can fail but the recursive loop should fix it, honestly this could be good because the judges could love it. add the hardware schematic somewhere when the code is generated too btw. that is our "wow" and its not just a code generator.
+
+---
+
+<task-notification>
+<task-id>bm8xkti12</task-id>
+<tool-use-id>toolu_01Etbb8kHoxPqnC8ev1yRcRw</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-emre-hackMunich/30d3ac5b-c951-485b-896a-483d3e28c703/tasks/bm8xkti12.output</output-file>
+<status>completed</status>
+<summary>Background command "Drive Add Chip flow end-to-end with sn74ls47.pdf and observe drafting outcome" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bs8pi5cfj</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-emre-hackMunich/30d3ac5b-c951-485b-896a-483d3e28c703/tasks/bs8pi5cfj.output</output-file>
+<status>completed</status>
+<summary>Background command "Launch the RTL pipeline attempt and monitor timing every 5s until terminal state" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+can you remove the 150s cap for reading the whole pdf. do you have to use def
+
+---
+
+can you remove the 150s cap for reading the whole pdf. do you have to use devin to read the tables and stuff? what about pdf to text?
+
+---
+
+Could not load pinout (Error: fetch chip ports failed: 404)
+
+also the testbencher is skipped maybe? can't tell. also, for the pipeline visual, the ui bug is not fixed at all. can you make the pipeline from scratch, equally spacing stuff out. make it visual. less AI generated.

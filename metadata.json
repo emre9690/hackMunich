@@ -1,0 +1,39 @@
+{
+  "cli_version": "0.10.2",
+  "checkpoint_id": "01M0NVGC832J75RTDTCSYVH5Q0",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 5,
+  "files_touched": [
+    "orchestrator/caps.py",
+    "orchestrator/devin_client.py",
+    "orchestrator/pipeline.py",
+    "orchestrator/spec_drafter.py",
+    "server/app.py",
+    "spec/registry.py",
+    "ui/src/App.jsx",
+    "ui/src/components/ActivityFeed.jsx",
+    "ui/src/components/CodePanel.jsx",
+    "ui/src/components/Leaderboard.jsx",
+    "ui/src/components/PipelineGraph.jsx",
+    "ui/src/components/SchematicPanel.jsx",
+    "ui/src/index.css",
+    "ui/src/lib/api.js"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 698,
+    "cache_creation_tokens": 514780,
+    "cache_read_tokens": 103426007,
+    "output_tokens": 244670,
+    "api_call_count": 349
+  }
+}
