@@ -1,0 +1,1 @@
+can you add a "kill all orchestrator" button so i don't get runaway processes. is this good to add?
