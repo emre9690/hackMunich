@@ -11,19 +11,27 @@ endpoint, which is what actually moves the file into /spec/chips/ -- a
 distinct, human-triggered action, not something this module ever does
 itself.
 
-Local, free steps (no API call): PDF/text extraction via pypdf, an AST
-safety check, and structural validation. Only the actual understanding of
-the datasheet -- turning prose/tables into working boolean logic -- goes
-through a Devin session, reusing the exact same create-session/poll/git
-infrastructure as the RTL pipeline (orchestrator/pipeline.py).
+The uploaded datasheet is committed as-is to the drafts branch (via a
+temporary git worktree, so the shared working tree other concurrent
+pipeline runs depend on staying on `main` is never touched) and Devin
+reads it directly in its own session -- no local text extraction. A
+first version tried local pypdf extraction, but old/scanned datasheets
+are very often image-only PDFs pypdf can't read at all; Devin's own
+session has real tools (and correctly refuses to invent chip behavior
+from memory when a document turns out to be unreadable, rather than
+silently hallucinating what becomes human-reviewed ground truth).
+
+AST safety check and structural validation, run locally before a draft
+is ever touched, stay local and free -- no API call for those.
 """
 from __future__ import annotations
 
 import ast
 import importlib.util
-import io
 import pathlib
+import subprocess
 import sys
+import tempfile
 from itertools import islice
 
 _REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -49,19 +57,42 @@ _BLOCKED_NAMES = {
     "vars", "getattr", "setattr", "delattr", "importlib", "ctypes", "pickle",
 }
 
+_GIT_TIMEOUT_SECONDS = 60
+
 
 class DraftValidationError(ValueError):
     pass
 
 
-def extract_text(filename: str, data: bytes) -> str:
-    """Local, free text extraction -- no API call. PDFs via pypdf, anything
-    else treated as plain text."""
-    if filename.lower().endswith(".pdf"):
-        from pypdf import PdfReader
-        reader = PdfReader(io.BytesIO(data))
-        return "\n\n".join(page.extract_text() or "" for page in reader.pages)
-    return data.decode(errors="replace")
+def _run_git(*args: str, cwd: pathlib.Path, check: bool = True) -> subprocess.CompletedProcess:
+    return subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True,
+                           check=check, timeout=_GIT_TIMEOUT_SECONDS)
+
+
+def _commit_datasheet_to_branch(branch: str, chip_id: str, doc_filename: str, doc_bytes: bytes) -> str:
+    """Commit the raw uploaded file to `branch` via a temporary git worktree
+    -- never checks out `branch` in the shared _REPO_ROOT working tree.
+    Returns the committed path, relative to the repo root."""
+    suffix = pathlib.Path(doc_filename).suffix or ".txt"
+    rel_path = f"drafts/{chip_id}_datasheet{suffix}"
+
+    worktree_dir = pathlib.Path(tempfile.mkdtemp(prefix=f"draft_worktree_{chip_id}_"))
+    try:
+        _run_git("worktree", "add", str(worktree_dir), branch, cwd=_REPO_ROOT)
+        target = worktree_dir / rel_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(doc_bytes)
+        # -f: /drafts/ is gitignored (so local unreviewed drafts never land
+        # on main by accident) -- but that rule is checked out on this
+        # branch too, and here we're deliberately committing to a drafts/*
+        # branch, so it needs to be forced past the ignore.
+        _run_git("add", "-f", rel_path, cwd=worktree_dir)
+        _run_git("commit", "-m", f"Add uploaded datasheet for {chip_id}", cwd=worktree_dir)
+        _run_git("push", "origin", branch, cwd=worktree_dir)
+    finally:
+        _run_git("worktree", "remove", "--force", str(worktree_dir), cwd=_REPO_ROOT, check=False)
+
+    return rel_path
 
 
 def validate_draft_source(source: str) -> None:
@@ -126,8 +157,7 @@ def preview_vectors(module, cap: int = 128) -> dict:
     }
 
 
-def _drafter_prompt(chip_id: str, branch: str, doc_text: str) -> str:
-    truncated = doc_text[:15000]
+def _drafter_prompt(chip_id: str, branch: str, datasheet_path: str) -> str:
     return f"""\
 You are drafting a HUMAN-REVIEWED CANDIDATE golden model for a digital
 logic chip, from an uploaded datasheet. This is NOT the RTL-writing task
@@ -141,7 +171,16 @@ exists on origin, do NOT create a new branch.
 
 Task:
 1. `git checkout {branch}`
-2. Read the datasheet text below (extracted from an uploaded document).
+2. Read the datasheet at `{datasheet_path}` in this repo (already
+   committed there for you). If it's a PDF and some pages don't yield
+   readable text directly -- a common issue with scanned/image-only
+   pages in old datasheets -- you have full shell access in your
+   environment: use whatever tool you need (OCR, your own document/image
+   understanding, installing packages, etc.) to actually read the real
+   content before proceeding. Do NOT invent or guess the chip's behavior
+   from memory if you cannot read the datasheet -- stop and report that
+   instead, exactly like a prior session correctly did when given a
+   document that turned out to have no readable content.
 3. Write a single file `drafts/{chip_id}.py` matching EXACTLY this
    interface (a real example from this repo, spec/chips/74138.py, for a
    DIFFERENT chip -- match its structure exactly, just with the new
@@ -162,16 +201,17 @@ Task:
      network calls, no imports beyond spec.registry
    - a docstring citing which part of the datasheet each behavior rule
      comes from, so a human reviewer can check it against the source
-5. Commit `drafts/{chip_id}.py` on branch `{branch}` and push it.
+5. Commit `drafts/{chip_id}.py` on branch `{branch}` and push it. NOTE:
+   `/drafts/` is in this repo's .gitignore (it protects `main` from
+   accidental unreviewed commits) -- that rule is checked out on this
+   branch too, so use `git add -f drafts/{chip_id}.py` or your `git add`
+   will silently do nothing. Leave the datasheet file itself as-is; do
+   not delete or modify it.
 6. Set structured_output to JSON: {{"commit_sha": "<sha>", "file": "drafts/{chip_id}.py"}}
 
 Do not create a pull request. Do not touch anything under /spec/ -- that
 directory is human-owned ground truth, and this draft is explicitly NOT
 trusted until a human reviews and approves it through a separate process.
-
---- DATASHEET TEXT (extracted from the uploaded document) ---
-{truncated}
---- END DATASHEET TEXT ---
 """
 
 
@@ -186,12 +226,9 @@ def draft_chip_spec(chip_id: str, doc_filename: str, doc_bytes: bytes) -> dict:
     budget = SessionBudget()
 
     try:
-        doc_text = extract_text(doc_filename, doc_bytes)
-        if not doc_text.strip():
-            raise DraftValidationError("could not extract any text from the uploaded document")
-
         ensure_remote_branch(branch)
-        prompt = _drafter_prompt(chip_id, branch, doc_text)
+        datasheet_path = _commit_datasheet_to_branch(branch, chip_id, doc_filename, doc_bytes)
+        prompt = _drafter_prompt(chip_id, branch, datasheet_path)
 
         state, handle = create_and_poll(
             chip_id=chip_id, branch=branch, agent="drafter", stage="draft", attempt=1,
