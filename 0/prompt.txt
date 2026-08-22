@@ -1,0 +1,8 @@
+<task-notification>
+<task-id>bh35d5okz</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-emre-hackMunich/c819efd9-e89b-4512-9e33-7eeac497624d/tasks/bh35d5okz.output</output-file>
+<status>completed</status>
+<summary>Background command "until curl -s http://127.0.0.1:8000/api/runs | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['runs'].get('74138-4',{}).get('status'))" | grep -qE '^(finished|failed)$'; do sleep 5; done
+curl -s http://127.0.0.1:8000/api/runs | python3 -m json.tool" completed (exit code 0)</summary>
+</task-notification>
