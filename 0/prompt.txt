@@ -1,0 +1,12 @@
+we want to speed this process up. when asking devin's coder module it suggests the following: Biggest wins for the Devin-session side of this pipeline:
+
+Put the golden model on the attempt branch — the prompt pointed at spec/chips/ski.py which didn't exist, so I spent time hunting through remote branches (found it on drafts/ski). Correct paths = zero detours.
+Inline the spec in the prompt — for tiny golden models (~100 lines), paste the Python directly into the prompt so the session doesn't even need to read the repo first.
+Pre-bake the environment — a blueprint/snapshot with the repo shallow-cloned and iverilog preinstalled saves the clone + apt-install time each run.
+Skip local verification entirely — you already say the harness is the sole truth; explicitly saying "do not install simulators or self-test" removes the iverilog step (I did it because it was cheap, ~30s).
+Use faster/lighter session modes for this task shape — it's a small, well-specified codegen task; Lite/Fast mode would cut wall-clock and ACUs. Your orchestrator's fast_demo flag already trims the sequential Testbencher/Style calls — same idea.
+Parallelize attempts — fire multiple attempt branches as parallel child sessions rather than sequential retries.
+Happy to update the environment blueprint (#3) if you want.
+You don't have to do all of these but any you seem valid do to speed up.
+
+Please also reintroduce the testbencher module
