@@ -220,6 +220,13 @@ def _coder_prompt(spec: ChipSpec, chip_id: str, branch: str, failing_detail: str
     in_ports = "\n".join(f"  input  {p.name};  // 1 bit" for p in spec.inputs)
     out_ports = "\n".join(f"  output {p.name};  // 1 bit" for p in spec.outputs)
     behavior = (spec.golden_fn.__doc__ or "").strip()
+    # Inlined so the session never has to go looking for it -- a prior
+    # session lost real time hunting across branches for a golden model
+    # that (before a since-fixed bug) hadn't actually been pushed to the
+    # path the prompt pointed at. Paste it directly and correct paths are
+    # both covered: nothing to go find, and if it does look, it's real.
+    golden_model_path = _REPO_ROOT / "spec" / "chips" / f"{chip_id}.py"
+    golden_model_source = golden_model_path.read_text() if golden_model_path.exists() else None
 
     prompt = f"""\
 You are implementing a Verilog (RTL) design that must exactly reproduce the
@@ -245,9 +252,11 @@ Task:
 3. Behavior spec (read carefully -- there is a specific active-high vs.
    active-low polarity per signal and a multi-term enable/select condition):
 {behavior}
-   The full human-authored golden model is at spec/chips/{chip_id}.py in
-   this repo -- you may read it for reference but must NEVER modify
-   anything under /spec/ (that is the ground truth, human-owned only).
+   The full human-authored golden model, pasted below so you don't need to
+   fetch anything, is also on this repo at spec/chips/{chip_id}.py -- read
+   it there only if you want extra context; you must NEVER modify anything
+   under /spec/ (that is the ground truth, human-owned only).
+{"--- spec/chips/" + chip_id + ".py ---" + chr(10) + golden_model_source + chr(10) + "--- end ---" if golden_model_source else "(not found locally when this prompt was built -- read it from the repo path above)"}
 4. Commit `rtl/{chip_id}.v` on branch `{branch}` with a clear message and
    push it to origin.
 5. Set structured_output to JSON containing at least:
@@ -257,7 +266,10 @@ Do not create a pull request. Do not modify any file outside rtl/{chip_id}.v.
 An external harness (not you) is the sole source of pass/fail truth -- after
 you push, it will compile and exhaustively simulate your RTL against the
 golden model. Implement your best-effort correct design and push it; you do
-not need to convince yourself it is correct via your own testing.
+NOT need to convince yourself it is correct via your own testing -- do NOT
+install iverilog or any other simulator, and do NOT self-verify. That work
+is redundant with the external harness and only spends time/ACUs you don't
+need to spend; go straight from writing the file to committing and pushing.
 """
     if failing_detail:
         prompt += f"""
@@ -373,13 +385,27 @@ the sole source of pass/fail truth for this design.
 """
 
 
-def run_testbencher_stage(chip_id: str, branch: str, run_id: int, budget: SessionBudget) -> dict:
-    """Runs Testbencher-Devin once (no loop-back), then re-runs the harness."""
+def run_testbencher_stage(
+    chip_id: str, branch: str, run_id: int, budget: SessionBudget, *, deadline: float | None = None,
+) -> dict:
+    """Runs Testbencher-Devin once (no loop-back), then re-runs the harness.
+
+    `deadline` bounds this the same way run_coder_loop's does: if the demo's
+    time budget is already spent by the time Coder finishes (its retries can
+    eat arbitrarily much of it), Testbencher is skipped rather than run
+    unbounded on top of an already-exhausted budget."""
+    if deadline is not None and time.monotonic() >= deadline:
+        return emit(chip=chip_id, branch=branch, agent="testbencher", stage="coverage", attempt=1,
+                     status="skipped",
+                     detail="demo time budget reached before Testbencher could start")
+
     spec = load_chip(chip_id)
     prompt = _testbencher_prompt(spec, chip_id, branch)
+    per_attempt_timeout = max(20.0, deadline - time.monotonic()) if deadline is not None else None
     state, handle = create_and_poll(
         chip_id=chip_id, branch=branch, agent="testbencher", stage="coverage", attempt=1,
         prompt=prompt, title=f"{chip_id} testbencher", budget=budget,
+        timeout_override_seconds=per_attempt_timeout,
     )
     if state is None:
         return {"status": "stalled"}
@@ -509,22 +535,24 @@ def _run_pipeline_inner(
     if not coder_passed:
         return result
 
-    if not fast_demo:
-        tb_event = run_testbencher_stage(chip_id, branch, run_id, budget)
-        result["testbencher"] = tb_event
-        if tb_event.get("status") != "pass":
-            return result
+    # Testbencher always runs now (deadline-bounded, so a Coder retry loop
+    # that already ate the whole demo budget makes it skip rather than run
+    # unbounded). Style stays skipped regardless of fast_demo -- it's purely
+    # cosmetic cleanup with no verification value, the first thing worth
+    # cutting to keep the live-demo path fast.
+    tb_event = run_testbencher_stage(chip_id, branch, run_id, budget, deadline=deadline)
+    result["testbencher"] = tb_event
+    if tb_event.get("status") not in ("pass", "skipped"):
+        return result
 
+    if not fast_demo:
         style_event = run_style_stage(chip_id, branch, run_id, budget)
         result["style"] = style_event
         if style_event.get("status") != "pass":
             return result
     else:
-        # Explicit, not just silently absent -- an idle node in the UI looks
-        # like something broke; a skipped one looks like what it is.
-        for agent, stage in (("testbencher", "coverage"), ("style", "cleanup")):
-            emit(chip=chip_id, branch=branch, agent=agent, stage=stage, attempt=1,
-                 status="skipped", detail="skipped by Fast Demo Mode")
+        emit(chip=chip_id, branch=branch, agent="style", stage="cleanup", attempt=1,
+             status="skipped", detail="skipped for demo speed")
 
     rtl_text = fetch_file_from_branch(branch, f"rtl/{chip_id}.v")
     local_rtl = _REPO_ROOT / "rtl" / f"_synth_{chip_id}_{run_id:02d}.v"

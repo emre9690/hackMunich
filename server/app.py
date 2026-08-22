@@ -18,6 +18,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import time
 from typing import AsyncIterator
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
@@ -160,6 +161,36 @@ async def start_run(req: RunRequest) -> dict:
 _CHIP_ID_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 
 
+def _commit_and_push_chip_files(chip_id: str) -> None:
+    """The approved golden model (and updated registry) must actually reach
+    origin/main -- a Coder-Devin session shallow-clones ITS OWN fresh copy of
+    the attempt branch from origin and needs spec/chips/{chip_id}.py to
+    already be there. Before this existed, approval only wrote the file to
+    this server's local working tree, so Coder sessions found spec/chips/
+    empty and had to go hunting on the drafts/ branch instead -- correct
+    paths save a real detour, not just a cosmetic one."""
+    rel_paths = [f"spec/chips/{chip_id}.py", "spec/registry.py"]
+    for attempt in range(3):
+        subprocess.run(["git", "add", *rel_paths], cwd=str(_REPO_ROOT),
+                        capture_output=True, text=True, timeout=30)
+        commit = subprocess.run(
+            ["git", "commit", "-m", f"Register {chip_id}: approved from datasheet draft"],
+            cwd=str(_REPO_ROOT), capture_output=True, text=True, timeout=30,
+        )
+        # A re-approval with identical content is not a failure.
+        if commit.returncode != 0 and "nothing to commit" not in commit.stdout.lower():
+            raise RuntimeError(f"git commit failed for {chip_id!r}: {commit.stderr or commit.stdout}")
+
+        push = subprocess.run(["git", "push", "origin", "main"], cwd=str(_REPO_ROOT),
+                               capture_output=True, text=True, timeout=60)
+        if push.returncode == 0:
+            return
+        if attempt < 2 and any(m in push.stderr.lower() for m in _TRANSIENT_GIT_ERROR_MARKERS):
+            time.sleep(3)
+            continue
+        raise RuntimeError(f"git push to main failed for {chip_id!r}: {push.stderr}")
+
+
 def _register_chip(chip_id: str) -> None:
     """Human-triggered-only: called from the approve endpoint, never from
     drafting. Appends chip_id to spec/registry.py's _KNOWN_CHIP_IDS tuple
@@ -277,8 +308,17 @@ def approve_draft(chip_id: str) -> dict:
 
     target_path = _REPO_ROOT / "spec" / "chips" / f"{chip_id}.py"
     target_path.write_text(source)
-    draft_path.unlink()
     _register_chip(chip_id)
+    try:
+        _commit_and_push_chip_files(chip_id)
+    except (RuntimeError, subprocess.TimeoutExpired) as e:
+        # Don't unlink the draft or report success -- the chip is now
+        # registered locally but NOT actually reachable by a Coder-Devin
+        # session's fresh clone from origin. Leaving the draft in place
+        # means the same approve click can just be retried once the
+        # underlying git/network issue clears.
+        raise HTTPException(502, f"approved locally but failed to push to origin: {e}") from e
+    draft_path.unlink()
 
     return {"ok": True, "chip_id": chip_id}
 
