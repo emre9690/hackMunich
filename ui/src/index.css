@@ -172,6 +172,18 @@ body {
   border-color: var(--accent) !important;
 }
 
+.app-reset-btn {
+  background: transparent !important;
+  color: var(--text-dim) !important;
+  border: 1px solid var(--border) !important;
+  font-weight: 500 !important;
+}
+
+.app-reset-btn:hover:not(:disabled) {
+  color: var(--c-fail) !important;
+  border-color: var(--c-fail) !important;
+}
+
 .app-main {
   flex: 1;
   display: grid;

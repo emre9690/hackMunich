@@ -64,8 +64,9 @@ async def _pump_process(run_id: str, proc: asyncio.subprocess.Process) -> None:
         await _broadcast(event)
 
     returncode = await proc.wait()
-    _runs[run_id]["status"] = "finished" if returncode == 0 else "failed"
-    _runs[run_id]["returncode"] = returncode
+    if run_id in _runs:  # a reset may have cleared it while this was still running
+        _runs[run_id]["status"] = "finished" if returncode == 0 else "failed"
+        _runs[run_id]["returncode"] = returncode
 
 
 class RunRequest(BaseModel):
@@ -205,6 +206,18 @@ def get_artifact(path: str) -> PlainTextResponse:
         raise HTTPException(404, "artifact not found")
 
     return PlainTextResponse(candidate.read_text(errors="replace"))
+
+
+@app.post("/api/reset")
+def reset() -> dict:
+    """Clear the event history and finished/failed run records so the UI
+    (and any fresh SSE connection's replay) starts from a clean slate.
+    Runs still in flight are left alone -- resetting doesn't cancel them,
+    it just stops showing their past events."""
+    _history.clear()
+    for run_id in [k for k, v in _runs.items() if v.get("status") != "running"]:
+        del _runs[run_id]
+    return {"ok": True}
 
 
 @app.get("/api/health")

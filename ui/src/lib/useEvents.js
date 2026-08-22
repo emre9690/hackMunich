@@ -32,5 +32,7 @@ export function useEvents() {
     return () => source.close();
   }, []);
 
-  return { events, connected };
+  const clearEvents = () => setEvents([]);
+
+  return { events, connected, clearEvents };
 }

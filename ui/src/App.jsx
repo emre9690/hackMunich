@@ -1,17 +1,18 @@
 import { useEffect, useState } from "react";
 import { useEvents } from "./lib/useEvents";
-import { startRun, fetchChips } from "./lib/api";
+import { startRun, fetchChips, resetRuns } from "./lib/api";
 import PipelineGraph from "./components/PipelineGraph";
 import AgentStatus from "./components/AgentStatus";
 import ProofPanel from "./components/ProofPanel";
 import Leaderboard from "./components/Leaderboard";
 
 export default function App() {
-  const { events, connected } = useEvents();
+  const { events, connected, clearEvents } = useEvents();
   const [chips, setChips] = useState([]);
   const [chip, setChip] = useState("74138");
   const [launching, setLaunching] = useState(false);
   const [launchError, setLaunchError] = useState(null);
+  const [resetting, setResetting] = useState(false);
   // Stage 6, behind a flag: parallel attempts + leaderboard view. Off by
   // default so the core single-pipeline demo (attempts=1, sequential) is
   // never affected.
@@ -39,6 +40,18 @@ export default function App() {
       setLaunchError(String(e));
     } finally {
       setLaunching(false);
+    }
+  }
+
+  async function handleReset() {
+    setResetting(true);
+    try {
+      await resetRuns();
+      clearEvents();
+    } catch (e) {
+      setLaunchError(String(e));
+    } finally {
+      setResetting(false);
     }
   }
 
@@ -90,6 +103,9 @@ export default function App() {
           onClick={() => setShowLeaderboard((v) => !v)}
         >
           {showLeaderboard ? "Show Proof Panel" : "Show Leaderboard"}
+        </button>
+        <button className="app-reset-btn" onClick={handleReset} disabled={resetting}>
+          {resetting ? "Resetting…" : "↺ Reset"}
         </button>
         {launchError && <span className="app-launch-error">{launchError}</span>}
       </div>
