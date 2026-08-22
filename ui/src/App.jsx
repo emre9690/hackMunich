@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useEvents } from "./lib/useEvents";
 import { startRun, fetchChips, resetRuns, killAll } from "./lib/api";
 import PipelineGraph from "./components/PipelineGraph";
@@ -33,6 +33,20 @@ export default function App() {
   }, []);
 
   const branch = events.length ? events[events.length - 1].branch : null;
+  const eventCountAtLaunch = useRef(0);
+  const launchTimeoutRef = useRef(null);
+
+  // The POST resolves as soon as the server spawns the subprocess -- well
+  // before that subprocess has done its git setup and actually created a
+  // Devin session. Without this, the button (and the pipeline graph) show
+  // nothing for a few seconds after clicking, looking like it did nothing.
+  // Keep "launching" true until the first real event actually streams in.
+  useEffect(() => {
+    if (launching && events.length > eventCountAtLaunch.current) {
+      setLaunching(false);
+      clearTimeout(launchTimeoutRef.current);
+    }
+  }, [events, launching]);
 
   async function handleLaunch() {
     // A single attempt is the normal, everyday action this whole UI exists
@@ -50,13 +64,16 @@ export default function App() {
       if (!confirmed) return;
     }
 
+    eventCountAtLaunch.current = events.length;
     setLaunching(true);
     setLaunchError(null);
     try {
       await startRun({ chip, attempts, parallel: parallel && attempts > 1 });
+      // Safety net: if no event shows up (e.g. the subprocess died before
+      // emitting anything), don't leave the button stuck disabled forever.
+      launchTimeoutRef.current = setTimeout(() => setLaunching(false), 20000);
     } catch (e) {
       setLaunchError(String(e));
-    } finally {
       setLaunching(false);
     }
   }
@@ -154,7 +171,7 @@ export default function App() {
 
       <main className="app-main">
         <section className="app-graph-section">
-          <PipelineGraph events={events} />
+          <PipelineGraph events={events} starting={launching} />
           <ActivityFeed events={events} />
           <AgentStatus events={events} />
         </section>

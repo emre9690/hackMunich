@@ -23,7 +23,7 @@ function latestByAgent(events) {
   return map;
 }
 
-export default function PipelineGraph({ events }) {
+export default function PipelineGraph({ events, starting = false }) {
   const latest = latestByAgent(events);
   const lastEvent = events[events.length - 1];
   const activeAgent = lastEvent?.agent;
@@ -32,9 +32,14 @@ export default function PipelineGraph({ events }) {
     <div className="pipeline-graph">
       {NODES.map((node, i) => {
         const event = latest[node.agent];
-        const status = event?.status ?? "idle";
+        // "starting" covers the gap between clicking Launch and the first
+        // real event arriving (git setup, session creation) -- without it
+        // the Coder node just sits idle with no feedback that anything
+        // happened at all.
+        const isStarting = node.id === "coder" && starting && !event;
+        const status = isStarting ? "running" : event?.status ?? "idle";
         const color = STATUS_COLOR[status] ?? STATUS_COLOR.idle;
-        const isActive = node.agent === activeAgent;
+        const isActive = isStarting || node.agent === activeAgent;
 
         return (
           <div className="pipeline-node-wrap" key={node.id}>
@@ -49,11 +54,11 @@ export default function PipelineGraph({ events }) {
                 status === "running" ? "pipeline-node-running" : ""
               }`}
               style={{ "--node-color": color }}
-              title={event?.detail ?? "no events yet"}
+              title={event?.detail ?? (isStarting ? "starting up…" : "no events yet")}
             >
               <div className="pipeline-node-dot" />
               <div className="pipeline-node-label">{node.label}</div>
-              <div className="pipeline-node-status">{status}</div>
+              <div className="pipeline-node-status">{isStarting ? "starting…" : status}</div>
               {event?.total != null && (
                 <div className="pipeline-node-count">
                   {event.passed}/{event.total}
