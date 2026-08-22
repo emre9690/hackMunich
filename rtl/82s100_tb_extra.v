@@ -42,7 +42,7 @@ module fpla_82s100_addr_decoder_tb_extra;
 
     task check;
         input [15:0] a;
-        input [255:0] label;
+        input [511:0] label;
         reg [7:0] exp_y;
         begin
             addr = a;
@@ -63,7 +63,7 @@ module fpla_82s100_addr_decoder_tb_extra;
     // Exactly one active-LOW output must be asserted for any address.
     task check_one_hot_low;
         input [15:0] a;
-        input [255:0] label;
+        input [511:0] label;
         integer i;
         integer lows;
         begin
@@ -88,7 +88,7 @@ module fpla_82s100_addr_decoder_tb_extra;
     task check_transition;
         input [15:0] a_before;
         input [15:0] a_after;
-        input [255:0] label;
+        input [511:0] label;
         reg [7:0] y_before;
         begin
             addr = a_before;
