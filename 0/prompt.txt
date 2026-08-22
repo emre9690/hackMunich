@@ -45,3 +45,14 @@ reconnected keep going
 Drafting failed: session ended but drafts/n82s100.py was not found on origin/drafts/n82s100
 
 why
+
+---
+
+can you make the devin thing on normal fast or lite mode to make it faster. also Drafting failed: session ended but drafts/n82.py was not found on origin/drafts/n82. and "How should this draft proceed?
+
+
+A
+Provide the programmed fuse table, exact variant, and a 0/1 convention for Hi-Z
+
+B
+Stop without creating a draft" on devin, there should be none of this. can you make it one click in total at the beginning why tf am i clicking anything in the devin window lol
