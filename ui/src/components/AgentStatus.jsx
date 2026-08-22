@@ -4,6 +4,7 @@ const STATUS_LABEL = {
   fail: "FAIL",
   stalled: "STALLED",
   error: "ERROR",
+  skipped: "SKIPPED",
 };
 
 export default function AgentStatus({ events }) {

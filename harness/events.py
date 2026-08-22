@@ -14,7 +14,7 @@ from typing import Any, Literal, Optional
 
 AGENTS = ("coder", "testbencher", "style", "harness", "synth")
 STAGES = ("generate", "verify", "coverage", "cleanup", "synthesize")
-STATUSES = ("running", "pass", "fail", "stalled", "error")
+STATUSES = ("running", "pass", "fail", "stalled", "error", "skipped")
 
 # Stage 6 runs multiple attempt pipelines concurrently in separate threads,
 # all emitting to the same stdout -- serialize each line so two events can
@@ -23,7 +23,7 @@ _PRINT_LOCK = threading.Lock()
 
 Agent = Literal["coder", "testbencher", "style", "harness", "synth"]
 Stage = Literal["generate", "verify", "coverage", "cleanup", "synthesize"]
-Status = Literal["running", "pass", "fail", "stalled", "error"]
+Status = Literal["running", "pass", "fail", "stalled", "error", "skipped"]
 
 
 def emit(

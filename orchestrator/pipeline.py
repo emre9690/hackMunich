@@ -374,15 +374,27 @@ def run_style_stage(chip_id: str, branch: str, run_id: int, budget: SessionBudge
 # Full pipeline: Coder -> Testbencher -> Style -> Synthesis
 # ---------------------------------------------------------------------------
 
-def run_pipeline(chip_id: str, run_id: int, budget: SessionBudget, *, synth_target: str = "ice40") -> dict:
+def run_pipeline(
+    chip_id: str, run_id: int, budget: SessionBudget, *,
+    synth_target: str = "ice40", fast_demo: bool = False,
+) -> dict:
     """Runs the full pipeline for one attempt. Never raises: any unexpected
     failure (e.g. a git operation timing out under Stage 6's concurrent
     attempts) is caught and turned into a visible error event + failed
     result, so one attempt's crash can never silently kill the whole batch
-    or leave a hung UI state (brief §4: every failure is visible)."""
+    or leave a hung UI state (brief §4: every failure is visible).
+
+    fast_demo=True skips Testbencher/Style (the two sequential Devin calls
+    that make a full pipeline take minutes) and goes straight from a
+    verified Coder RTL to synthesis. This ONLY reduces how many agents run
+    -- exhaustive vector verification against every input is never reduced,
+    at any setting. Vector count is not what makes a run slow (65536
+    vectors verify in ~1s); sequential Devin sessions are.
+    """
     branch = branch_name(chip_id, run_id)
     try:
-        return _run_pipeline_inner(chip_id, run_id, budget, synth_target=synth_target)
+        return _run_pipeline_inner(chip_id, run_id, budget, synth_target=synth_target,
+                                    fast_demo=fast_demo)
     except Exception as e:  # noqa: BLE001 -- deliberately broad, see docstring
         emit(chip=chip_id, branch=branch, agent="harness", stage="verify", attempt=0,
              status="error", detail=f"pipeline crashed unexpectedly: {e!r}")
@@ -390,8 +402,10 @@ def run_pipeline(chip_id: str, run_id: int, budget: SessionBudget, *, synth_targ
                 "error": repr(e)}
 
 
-def _run_pipeline_inner(chip_id: str, run_id: int, budget: SessionBudget, *, synth_target: str) -> dict:
-    result: dict = {"chip": chip_id, "run_id": run_id}
+def _run_pipeline_inner(
+    chip_id: str, run_id: int, budget: SessionBudget, *, synth_target: str, fast_demo: bool,
+) -> dict:
+    result: dict = {"chip": chip_id, "run_id": run_id, "fast_demo": fast_demo}
 
     coder_passed, branch = run_coder_loop(chip_id, run_id, budget)
     result["branch"] = branch
@@ -399,15 +413,22 @@ def _run_pipeline_inner(chip_id: str, run_id: int, budget: SessionBudget, *, syn
     if not coder_passed:
         return result
 
-    tb_event = run_testbencher_stage(chip_id, branch, run_id, budget)
-    result["testbencher"] = tb_event
-    if tb_event.get("status") != "pass":
-        return result
+    if not fast_demo:
+        tb_event = run_testbencher_stage(chip_id, branch, run_id, budget)
+        result["testbencher"] = tb_event
+        if tb_event.get("status") != "pass":
+            return result
 
-    style_event = run_style_stage(chip_id, branch, run_id, budget)
-    result["style"] = style_event
-    if style_event.get("status") != "pass":
-        return result
+        style_event = run_style_stage(chip_id, branch, run_id, budget)
+        result["style"] = style_event
+        if style_event.get("status") != "pass":
+            return result
+    else:
+        # Explicit, not just silently absent -- an idle node in the UI looks
+        # like something broke; a skipped one looks like what it is.
+        for agent, stage in (("testbencher", "coverage"), ("style", "cleanup")):
+            emit(chip=chip_id, branch=branch, agent=agent, stage=stage, attempt=1,
+                 status="skipped", detail="skipped by Fast Demo Mode")
 
     rtl_text = fetch_file_from_branch(branch, f"rtl/{chip_id}.v")
     local_rtl = _REPO_ROOT / "rtl" / f"_synth_{chip_id}_{run_id:02d}.v"

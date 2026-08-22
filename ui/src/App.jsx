@@ -22,6 +22,11 @@ export default function App() {
   const [attempts, setAttempts] = useState(1);
   const [parallel, setParallel] = useState(false);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
+  // Skips Testbencher/Style (fewer sequential Devin calls) for a faster
+  // demo. Vector verification is exhaustive at every setting, always --
+  // this only reduces which agents run, never how thoroughly the RTL is
+  // checked.
+  const [fastDemo, setFastDemo] = useState(false);
 
   useEffect(() => {
     fetchChips()
@@ -68,7 +73,7 @@ export default function App() {
     setLaunching(true);
     setLaunchError(null);
     try {
-      await startRun({ chip, attempts, parallel: parallel && attempts > 1 });
+      await startRun({ chip, attempts, parallel: parallel && attempts > 1, fastDemo });
       // Safety net: if no event shows up (e.g. the subprocess died before
       // emitting anything), don't leave the button stuck disabled forever.
       launchTimeoutRef.current = setTimeout(() => setLaunching(false), 20000);
@@ -149,6 +154,14 @@ export default function App() {
             onChange={(e) => setParallel(e.target.checked)}
           />
           Parallel
+        </label>
+        <label className="app-fastdemo-label" title="Skips Testbencher/Style. Vector verification stays exhaustive always.">
+          <input
+            type="checkbox"
+            checked={fastDemo}
+            onChange={(e) => setFastDemo(e.target.checked)}
+          />
+          Fast Demo Mode
         </label>
         <button onClick={handleLaunch} disabled={launching}>
           {launching ? "Launching…" : "Launch Attempt"}

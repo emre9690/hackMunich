@@ -13,6 +13,7 @@ const STATUS_COLOR = {
   fail: "#ef4444",
   stalled: "#f59e0b",
   error: "#ef4444",
+  skipped: "#7d8ba0",
 };
 
 function latestByAgent(events) {

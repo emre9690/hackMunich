@@ -77,6 +77,7 @@ class RunRequest(BaseModel):
     chip: str
     attempts: int = 1
     parallel: bool = False  # Stage 6: run `attempts` branches concurrently
+    fast_demo: bool = False  # skip Testbencher/Style; verification stays exhaustive
 
 
 @app.get("/api/chips")
@@ -118,12 +119,15 @@ async def start_run(req: RunRequest) -> dict:
     ]
     if req.parallel:
         cmd.append("--parallel")
+    if req.fast_demo:
+        cmd.append("--fast-demo")
     proc = await asyncio.create_subprocess_exec(
         *cmd, cwd=str(_REPO_ROOT),
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
     )
     _runs[run_id] = {
         "chip": req.chip, "attempts": req.attempts, "parallel": req.parallel,
+        "fast_demo": req.fast_demo,
         "pid": proc.pid, "status": "running",
     }
     _processes[run_id] = proc

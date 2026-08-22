@@ -4,11 +4,11 @@ export function apiUrl(path) {
   return `${API_BASE}${path}`;
 }
 
-export async function startRun({ chip, attempts = 1, parallel = false }) {
+export async function startRun({ chip, attempts = 1, parallel = false, fastDemo = false }) {
   const res = await fetch(apiUrl("/api/runs"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ chip, attempts, parallel }),
+    body: JSON.stringify({ chip, attempts, parallel, fast_demo: fastDemo }),
   });
   if (!res.ok) throw new Error(`start run failed: ${res.status}`);
   return res.json();

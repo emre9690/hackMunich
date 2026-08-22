@@ -139,13 +139,18 @@ body {
 }
 
 .app-attempts-label,
-.app-parallel-label {
+.app-parallel-label,
+.app-fastdemo-label {
   display: flex;
   align-items: center;
   gap: 6px;
   font-family: var(--mono);
   font-size: 11px;
   color: var(--text-dim);
+}
+
+.app-fastdemo-label {
+  color: #f59e0b;
 }
 
 .app-attempts-label input[type="number"] {
@@ -367,6 +372,7 @@ body {
 .agent-status-row.status-error { border-color: var(--c-error); }
 .agent-status-row.status-stalled { border-color: var(--c-stalled); }
 .agent-status-row.status-running { border-color: var(--c-running); }
+.agent-status-row.status-skipped { border-color: var(--text-dim); opacity: 0.7; }
 
 .agent-status-top {
   display: flex;
@@ -398,6 +404,7 @@ body {
 .badge-error { background: rgba(239,68,68,0.15); color: var(--c-error); }
 .badge-stalled { background: rgba(245,158,11,0.15); color: var(--c-stalled); }
 .badge-running { background: rgba(59,130,246,0.15); color: var(--c-running); }
+.badge-skipped { background: rgba(125,139,160,0.15); color: var(--text-dim); }
 
 .agent-status-detail {
   font-size: 11px;

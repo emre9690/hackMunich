@@ -34,6 +34,9 @@ def main() -> int:
     parser.add_argument("--start-run-id", type=int, default=1)
     parser.add_argument("--parallel", action="store_true",
                          help="Stage 6: run attempts concurrently instead of sequentially")
+    parser.add_argument("--fast-demo", action="store_true",
+                         help="skip Testbencher/Style (fewer sequential Devin calls); "
+                              "exhaustive vector verification is never reduced by this")
     args = parser.parse_args()
 
     budget = SessionBudget()
@@ -42,12 +45,15 @@ def main() -> int:
     if args.parallel and len(run_ids) > 1:
         results = []
         with ThreadPoolExecutor(max_workers=min(len(run_ids), MAX_CONCURRENT_SESSIONS)) as pool:
-            futures = {pool.submit(run_pipeline, args.chip, run_id, budget): run_id for run_id in run_ids}
+            futures = {
+                pool.submit(run_pipeline, args.chip, run_id, budget, fast_demo=args.fast_demo): run_id
+                for run_id in run_ids
+            }
             for future in as_completed(futures):
                 results.append(future.result())
         results.sort(key=lambda r: r["run_id"])
     else:
-        results = [run_pipeline(args.chip, run_id, budget) for run_id in run_ids]
+        results = [run_pipeline(args.chip, run_id, budget, fast_demo=args.fast_demo) for run_id in run_ids]
 
     print(json.dumps({"results": results, "sessions_used": budget.total_created}, indent=2))
     return 0 if all(r.get("coder_passed") for r in results) else 1
