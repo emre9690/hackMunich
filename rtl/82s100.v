@@ -1,8 +1,7 @@
-// 82S100 FPLA programmed as a 16-input address decoder / chip-select generator.
+// 82S100 FPLA programmed as a 16-input address decoder/chip-select generator.
 // Outputs Y0..Y7 are active LOW; exactly one output is asserted for any address.
-//   Region r = A[15:13] asserts Yr, except:
-//     0x6000-0x60FF is carved out of region 3 and owned by Y7
-//     region 7 (0xE000-0xFFFF) asserts Y7
+// Address bits A15..A13 normally select the corresponding output, except that
+// 0x6000-0x60FF is reassigned from Y3 to Y7. Region 7 also selects Y7.
 module fpla_82s100_addr_decoder (
     input  A0,
     input  A1,
@@ -29,17 +28,18 @@ module fpla_82s100_addr_decoder (
     output Y6,
     output Y7
 );
-    wire [2:0] region = {A15, A14, A13};
+    wire [2:0] address_region = {A15, A14, A13};
 
-    // 0x6000-0x60FF: region 3 with A12..A8 all zero (low byte unconstrained)
-    wire in_carve = (region == 3'b011) & ~A12 & ~A11 & ~A10 & ~A9 & ~A8;
+    // A7..A0 are intentionally ignored, covering the entire 0x6000-0x60FF page.
+    wire carveout_selected =
+        (address_region == 3'b011) & ~A12 & ~A11 & ~A10 & ~A9 & ~A8;
 
-    assign Y0 = ~(region == 3'b000);
-    assign Y1 = ~(region == 3'b001);
-    assign Y2 = ~(region == 3'b010);
-    assign Y3 = ~((region == 3'b011) & ~in_carve);
-    assign Y4 = ~(region == 3'b100);
-    assign Y5 = ~(region == 3'b101);
-    assign Y6 = ~(region == 3'b110);
-    assign Y7 = ~((region == 3'b111) | in_carve);
+    assign Y0 = ~(address_region == 3'b000);
+    assign Y1 = ~(address_region == 3'b001);
+    assign Y2 = ~(address_region == 3'b010);
+    assign Y3 = ~((address_region == 3'b011) & ~carveout_selected);
+    assign Y4 = ~(address_region == 3'b100);
+    assign Y5 = ~(address_region == 3'b101);
+    assign Y6 = ~(address_region == 3'b110);
+    assign Y7 = ~((address_region == 3'b111) | carveout_selected);
 endmodule
