@@ -1,0 +1,12 @@
+<task-notification>
+<task-id>btdwn8lc2</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-emre-hackMunich/c819efd9-e89b-4512-9e33-7eeac497624d/tasks/btdwn8lc2.output</output-file>
+<status>completed</status>
+<summary>Background command "until curl -s http://127.0.0.1:8000/api/runs | grep -q '"status":"finished"\|"status":"failed"'; do sleep 5; done
+curl -s http://127.0.0.1:8000/api/runs | python3 -m json.tool" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+continute, i have internet again

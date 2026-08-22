@@ -1,0 +1,126 @@
+{
+  "cli_version": "0.10.2",
+  "checkpoint_id": "01M0N03MWQ9XHSW19YTWB2Z0S3",
+  "session_id": "c819efd9-e89b-4512-9e33-7eeac497624d",
+  "strategy": "manual-commit",
+  "created_at": "2026-08-22T15:05:59.580142Z",
+  "branch": "main",
+  "checkpoints_count": 1,
+  "save_step_count": 1,
+  "files_touched": [
+    "harness/check_vectors.py",
+    "harness/run_synth.py",
+    "orchestrator/devin_client.py",
+    "orchestrator/pipeline.py",
+    "orchestrator/run.py",
+    "server/__init__.py",
+    "server/app.py",
+    "spec/chips/82s100.py",
+    "ui/.gitignore",
+    "ui/.oxlintrc.json",
+    "ui/README.md",
+    "ui/index.html",
+    "ui/package-lock.json",
+    "ui/package.json",
+    "ui/public/favicon.svg",
+    "ui/public/icons.svg",
+    "ui/src/App.jsx",
+    "ui/src/components/AgentStatus.jsx",
+    "ui/src/components/PipelineGraph.jsx",
+    "ui/src/components/ProofPanel.jsx",
+    "ui/src/components/Waveform.jsx",
+    "ui/src/index.css",
+    "ui/src/lib/api.js",
+    "ui/src/lib/useEvents.js",
+    "ui/src/lib/vcd.js",
+    "ui/src/main.jsx",
+    "ui/vite.config.js"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-sonnet-5",
+  "turn_id": "672f424b5537",
+  "checkpoint_transcript_start": 318,
+  "transcript_lines_at_start": 318,
+  "compact_transcript_start": 60,
+  "token_usage": {
+    "input_tokens": 282,
+    "cache_creation_tokens": 418147,
+    "cache_read_tokens": 28654081,
+    "output_tokens": 101450,
+    "api_call_count": 141
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_01NtEyULEopd4JWpNx59FoSS",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "run"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "672f424b5537",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 798,
+        "end": 799,
+        "entry_ids": [
+          "383f54a8-f251-4f7d-8358-eab7a4932fcd"
+        ],
+        "tool_use_id": "toolu_01NtEyULEopd4JWpNx59FoSS"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01NtEyULEopd4JWpNx59FoSS"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: run",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 4
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-08-22T15:05:59.347373Z",
+    "agent_lines": 3064,
+    "agent_removed": 46,
+    "human_added": 6,
+    "human_modified": 4,
+    "human_removed": 0,
+    "total_committed": 3072,
+    "total_lines_changed": 3120,
+    "agent_percentage": 99.67948717948718,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 178,
+      "user_lines_removed": 2,
+      "agent_lines_added": 3071,
+      "agent_lines_removed": 48,
+      "user_added_per_file": {
+        ".claude/scheduled_tasks.lock": 1,
+        ".claude/settings.json": 84,
+        ".codex/hooks.json": 88,
+        "orchestrator/pipeline.py": 5
+      },
+      "user_removed_per_file": {
+        "orchestrator/pipeline.py": 2
+      }
+    }
+  ]
+}

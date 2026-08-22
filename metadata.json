@@ -1,0 +1,52 @@
+{
+  "cli_version": "0.10.2",
+  "checkpoint_id": "01M0N03MWQ9XHSW19YTWB2Z0S3",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "harness/check_vectors.py",
+    "harness/run_synth.py",
+    "orchestrator/devin_client.py",
+    "orchestrator/pipeline.py",
+    "orchestrator/run.py",
+    "server/__init__.py",
+    "server/app.py",
+    "spec/chips/82s100.py",
+    "ui/.gitignore",
+    "ui/.oxlintrc.json",
+    "ui/README.md",
+    "ui/index.html",
+    "ui/package-lock.json",
+    "ui/package.json",
+    "ui/public/favicon.svg",
+    "ui/public/icons.svg",
+    "ui/src/App.jsx",
+    "ui/src/components/AgentStatus.jsx",
+    "ui/src/components/PipelineGraph.jsx",
+    "ui/src/components/ProofPanel.jsx",
+    "ui/src/components/Waveform.jsx",
+    "ui/src/index.css",
+    "ui/src/lib/api.js",
+    "ui/src/lib/useEvents.js",
+    "ui/src/lib/vcd.js",
+    "ui/src/main.jsx",
+    "ui/vite.config.js"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 282,
+    "cache_creation_tokens": 418147,
+    "cache_read_tokens": 28654081,
+    "output_tokens": 101450,
+    "api_call_count": 141
+  }
+}
