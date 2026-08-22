@@ -184,6 +184,23 @@ body {
   border-color: var(--c-fail) !important;
 }
 
+.app-kill-btn {
+  background: var(--c-fail) !important;
+  color: #1a0000 !important;
+  font-weight: 700 !important;
+  border: none !important;
+}
+
+.app-kill-btn:hover:not(:disabled) {
+  filter: brightness(1.15);
+}
+
+.app-kill-result {
+  color: var(--text-dim);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
 .app-main {
   flex: 1;
   display: grid;

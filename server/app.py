@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import pathlib
 import re
+import signal
 import subprocess
 import sys
 from typing import AsyncIterator
@@ -40,6 +42,7 @@ _REPLAY_LIMIT = 300
 _history: list[dict] = []
 _subscribers: list[asyncio.Queue] = []
 _runs: dict[str, dict] = {}
+_processes: dict[str, asyncio.subprocess.Process] = {}
 
 
 async def _broadcast(event: dict) -> None:
@@ -64,7 +67,8 @@ async def _pump_process(run_id: str, proc: asyncio.subprocess.Process) -> None:
         await _broadcast(event)
 
     returncode = await proc.wait()
-    if run_id in _runs:  # a reset may have cleared it while this was still running
+    _processes.pop(run_id, None)
+    if run_id in _runs and _runs[run_id].get("status") != "killed":
         _runs[run_id]["status"] = "finished" if returncode == 0 else "failed"
         _runs[run_id]["returncode"] = returncode
 
@@ -122,8 +126,46 @@ async def start_run(req: RunRequest) -> dict:
         "chip": req.chip, "attempts": req.attempts, "parallel": req.parallel,
         "pid": proc.pid, "status": "running",
     }
+    _processes[run_id] = proc
     asyncio.create_task(_pump_process(run_id, proc))
     return {"run_id": run_id, "pid": proc.pid}
+
+
+@app.post("/api/kill-all")
+def kill_all() -> dict:
+    """Forcibly stop every orchestrator process: the ones this server is
+    tracking, plus a sweep for any `orchestrator.run` process that survived
+    a server restart (in-memory tracking is lost on restart, but the child
+    process it spawned is not -- this is exactly how a prior incident's
+    runaway process went unnoticed).
+
+    Important: this stops the LOCAL polling/orchestration loop, so no NEW
+    Devin session gets created from here on. It does NOT cancel a Devin
+    session that's already running in their cloud -- the Devin API has no
+    known stop/cancel endpoint, so an in-flight session keeps running there
+    regardless of this button."""
+    killed_pids: list[int] = []
+
+    for run_id, proc in list(_processes.items()):
+        if proc.returncode is None:
+            proc.kill()
+            killed_pids.append(proc.pid)
+        _processes.pop(run_id, None)
+        if run_id in _runs:
+            _runs[run_id]["status"] = "killed"
+
+    sweep = subprocess.run(["pgrep", "-f", "orchestrator.run"], capture_output=True, text=True)
+    for pid_str in sweep.stdout.split():
+        pid = int(pid_str)
+        if pid in killed_pids or pid == os.getpid():
+            continue
+        try:
+            os.kill(pid, signal.SIGKILL)
+            killed_pids.append(pid)
+        except ProcessLookupError:
+            pass
+
+    return {"killed_pids": killed_pids}
 
 
 @app.get("/api/events")

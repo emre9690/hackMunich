@@ -14,6 +14,12 @@ export async function startRun({ chip, attempts = 1, parallel = false }) {
   return res.json();
 }
 
+export async function killAll() {
+  const res = await fetch(apiUrl("/api/kill-all"), { method: "POST" });
+  if (!res.ok) throw new Error(`kill-all failed: ${res.status}`);
+  return res.json();
+}
+
 export async function resetRuns() {
   const res = await fetch(apiUrl("/api/reset"), { method: "POST" });
   if (!res.ok) throw new Error(`reset failed: ${res.status}`);

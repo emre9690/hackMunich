@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useEvents } from "./lib/useEvents";
-import { startRun, fetchChips, resetRuns } from "./lib/api";
+import { startRun, fetchChips, resetRuns, killAll } from "./lib/api";
 import PipelineGraph from "./components/PipelineGraph";
 import AgentStatus from "./components/AgentStatus";
 import ProofPanel from "./components/ProofPanel";
@@ -13,6 +13,8 @@ export default function App() {
   const [launching, setLaunching] = useState(false);
   const [launchError, setLaunchError] = useState(null);
   const [resetting, setResetting] = useState(false);
+  const [killing, setKilling] = useState(false);
+  const [killResult, setKillResult] = useState(null);
   // Stage 6, behind a flag: parallel attempts + leaderboard view. Off by
   // default so the core single-pipeline demo (attempts=1, sequential) is
   // never affected.
@@ -53,6 +55,26 @@ export default function App() {
       setLaunchError(String(e));
     } finally {
       setLaunching(false);
+    }
+  }
+
+  async function handleKillAll() {
+    const confirmed = window.confirm(
+      "This forcibly stops every orchestrator process running locally, so no " +
+        "NEW Devin sessions get created. It does NOT cancel a Devin session " +
+        "already running in the cloud -- there's no known API to do that. Continue?"
+    );
+    if (!confirmed) return;
+
+    setKilling(true);
+    setKillResult(null);
+    try {
+      const result = await killAll();
+      setKillResult(`Killed ${result.killed_pids.length} process(es).`);
+    } catch (e) {
+      setLaunchError(String(e));
+    } finally {
+      setKilling(false);
     }
   }
 
@@ -120,7 +142,11 @@ export default function App() {
         <button className="app-reset-btn" onClick={handleReset} disabled={resetting}>
           {resetting ? "Resetting…" : "↺ Reset"}
         </button>
+        <button className="app-kill-btn" onClick={handleKillAll} disabled={killing}>
+          {killing ? "Killing…" : "⏻ Kill All Orchestrators"}
+        </button>
         {launchError && <span className="app-launch-error">{launchError}</span>}
+        {killResult && <span className="app-kill-result">{killResult}</span>}
       </div>
 
       <main className="app-main">
