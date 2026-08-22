@@ -59,6 +59,19 @@ _BLOCKED_NAMES = {
 
 _GIT_TIMEOUT_SECONDS = 60
 
+# Forces Devin to always leave a definitive, self-contained final answer
+# (never a follow-up question) -- see the CRITICAL section in the prompt.
+_STRUCTURED_OUTPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "status": {"type": "string", "enum": ["drafted", "blocked"]},
+        "file": {"type": "string"},
+        "commit_sha": {"type": "string"},
+        "blocked_reason": {"type": "string"},
+    },
+    "required": ["status"],
+}
+
 
 class DraftValidationError(ValueError):
     pass
@@ -207,12 +220,46 @@ Task:
    branch too, so use `git add -f drafts/{chip_id}.py` or your `git add`
    will silently do nothing. Leave the datasheet file itself as-is; do
    not delete or modify it.
-6. Set structured_output to JSON: {{"commit_sha": "<sha>", "file": "drafts/{chip_id}.py"}}
 
 Do not create a pull request. Do not touch anything under /spec/ -- that
 directory is human-owned ground truth, and this draft is explicitly NOT
 trusted until a human reviews and approves it through a separate process.
+
+CRITICAL -- there is NO ONE available to answer questions in this
+session, ever, and it will NOT be resumed:
+- Never ask a question and wait. Never present options ("A) ... B) ...")
+  and pause for a reply. If you cannot produce a correct golden model
+  (blank/unprogrammed program table, an electrical state like Hi-Z that
+  a plain 0/1 interface can't represent, ambiguous pinout, etc.), that is
+  your FINAL conclusion, not an open question -- decide "blocked" and
+  end the session yourself. Do not leave it open or waiting.
+- You MUST set structured_output before ending, in exactly one of these
+  two shapes:
+  - success: {{"status": "drafted", "file": "drafts/{chip_id}.py", "commit_sha": "<sha>"}}
+  - can't proceed: {{"status": "blocked", "blocked_reason": "<a complete,
+    specific, final explanation of exactly what's missing or unsupported
+    -- this is the ONLY thing a human will see, so make it stand alone>"}}
 """
+
+
+def _extract_blocked_reason(state) -> str:
+    """No file was pushed -- figure out WHY, so a human never has to open
+    Devin's own dashboard to find out. Prefers the structured_output the
+    prompt requires; falls back to the last real message if Devin didn't
+    comply, so this is never just a bare 'not found'."""
+    structured = state.structured_output or {}
+    if structured.get("blocked_reason"):
+        return structured["blocked_reason"]
+
+    for msg in reversed(state.messages):
+        if msg.get("type") == "initial_user_message":
+            continue
+        text = (msg.get("message") or "").strip()
+        if text:
+            return text[:800]
+
+    return f"session ended with status_enum={state.status_enum!r} but produced no draft " \
+           f"file and no explanation"
 
 
 def draft_chip_spec(chip_id: str, doc_filename: str, doc_bytes: bytes) -> dict:
@@ -233,16 +280,18 @@ def draft_chip_spec(chip_id: str, doc_filename: str, doc_bytes: bytes) -> dict:
         state, handle = create_and_poll(
             chip_id=chip_id, branch=branch, agent="drafter", stage="draft", attempt=1,
             prompt=prompt, title=f"draft spec for {chip_id}", budget=budget,
+            structured_output_schema=_STRUCTURED_OUTPUT_SCHEMA,
         )
         if state is None:
             return {"chip_id": chip_id, "ok": False, "error": "session stalled"}
 
         source = fetch_file_from_branch(branch, f"drafts/{chip_id}.py")
         if source is None:
+            reason = _extract_blocked_reason(state)
             emit(chip=chip_id, branch=branch, agent="drafter", stage="draft", attempt=1,
                  status="error", session_id=handle.session_id, session_url=handle.url,
-                 detail=f"session ended but drafts/{chip_id}.py was not found on origin/{branch}")
-            return {"chip_id": chip_id, "ok": False, "error": "draft file not found"}
+                 detail=reason)
+            return {"chip_id": chip_id, "ok": False, "error": reason}
 
         validate_draft_source(source)
         DRAFTS_DIR.mkdir(exist_ok=True)

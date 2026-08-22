@@ -79,20 +79,24 @@ def create_and_poll(
     prompt: str,
     title: str,
     budget: SessionBudget,
+    structured_output_schema: dict | None = None,
 ) -> tuple[devin_client.SessionState | None, devin_client.SessionHandle]:
     """Create a Devin session and poll it to completion.
 
-    Returns (None, handle) if the session stalled (timeout) or is blocked
-    (needs human input) -- both cases already emitted a visible 'stalled'
-    event, so the caller should just propagate failure. Otherwise returns
-    (state, handle) for the caller to interpret.
+    Returns (None, handle) only if the session stalled (timed out) --
+    already emitted a visible 'stalled' event, so the caller should just
+    propagate failure. Otherwise returns (state, handle) for the caller to
+    interpret: status_enum "blocked" is NOT treated as failure here (see
+    below), so the caller must check the actual git branch state itself.
     """
     emit(chip=chip_id, branch=branch, agent=agent, stage=stage, attempt=attempt,
          status="running", detail="creating Devin session")
 
     budget.acquire()
     try:
-        handle = devin_client.create_session(prompt, title=title)
+        handle = devin_client.create_session(
+            prompt, title=title, structured_output_schema=structured_output_schema,
+        )
         emit(chip=chip_id, branch=branch, agent=agent, stage=stage, attempt=attempt,
              status="running", session_id=handle.session_id, session_url=handle.url,
              detail="session created, polling for completion")

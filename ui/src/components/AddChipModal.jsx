@@ -150,7 +150,11 @@ export default function AddChipModal({ events, onClose, onApproved }) {
 
         {phase === "error" && (
           <div className="modal-body">
-            <p className="modal-error">Drafting failed: {error}</p>
+            <p className="modal-note">
+              Devin declined to draft this rather than invent a golden model it couldn't verify
+              against the datasheet. Its full reasoning:
+            </p>
+            <div className="draft-blocked-reason">{error}</div>
             <button className="modal-primary" onClick={() => setPhase("form")}>
               Back
             </button>

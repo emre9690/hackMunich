@@ -96,10 +96,18 @@ def ping() -> bool:
     return True
 
 
-def create_session(prompt: str, *, title: Optional[str] = None, idempotent: bool = False) -> SessionHandle:
+def create_session(
+    prompt: str,
+    *,
+    title: Optional[str] = None,
+    idempotent: bool = False,
+    structured_output_schema: Optional[dict] = None,
+) -> SessionHandle:
     body: dict[str, Any] = {"prompt": prompt, "idempotent": idempotent}
     if title:
         body["title"] = title
+    if structured_output_schema:
+        body["structured_output_schema"] = structured_output_schema
     resp = _request("POST", "/sessions", json_body=body)
     return SessionHandle(session_id=resp["session_id"], url=resp.get("url", ""))
 

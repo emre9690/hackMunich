@@ -790,6 +790,19 @@ body {
   margin: 0;
 }
 
+.draft-blocked-reason {
+  background: var(--panel-2);
+  border: 1px solid var(--c-stalled);
+  border-radius: 6px;
+  padding: 12px 14px;
+  max-height: 320px;
+  overflow-y: auto;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text);
+  white-space: pre-wrap;
+}
+
 .modal-primary {
   background: var(--accent) !important;
   color: #04141f !important;
