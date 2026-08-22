@@ -1,0 +1,140 @@
+make a pr. and then do this: Claude Code Build Brief — Autonomous Chip-Recreation Agent (Hackathon MVP)
+0. Read this whole brief before writing any code. Then work STAGE BY STAGE.
+You are building the MVP of an autonomous hardware-recreation system for a hackathon (sponsored by Cognition, using Devin). The system takes a discontinued digital logic chip's specification and uses real Devin cloud sessions to generate, verify, and clean up a Verilog (RTL) design that is proven — by an independent harness — to behave identically to the original.
+The single most important rule of how you work:
+Build in the numbered stages below. After EACH stage, STOP. Report what you built, exactly how you verified it works, and what the human should check. Then WAIT for explicit approval before starting the next stage. Do not run ahead. Do not spend Devin API calls until the stage that introduces them, and never beyond that stage's caps. If you are blocked or something is ambiguous, ASK — do not invent a workaround that silently changes the design.
+The repo currently contains only a README. This is a clean build.
+
+1. What we are building (the architecture — internalize this)
+Three specialized real Devin sessions collaborate on each chip, coordinated by a Python orchestrator that we control (NOT a Devin). Devin sessions are isolated cloud VMs and cannot talk to each other — so the git repository is the shared bus. Every handoff between agents is a git commit on a per-attempt branch.
+For one chip attempt, on a dedicated branch (e.g. attempt/74138-01):
+Coder-Devin — task: implement the spec as /rtl/<chip>.v, commit, push.
+The orchestrator runs our harness: compiles the RTL with Icarus Verilog and checks it against our human-authored golden vectors. The orchestrator, via the harness, is the ONLY source of pass/fail truth. No Devin ever decides correctness.
+On FAIL → send the failing vectors back to Coder-Devin, loop (capped, see §4).
+On PASS → advance the branch.
+Testbencher-Devin — task: ADD extra edge-case testbench coverage beyond the golden vectors, commit. Its tests can catch more, but can NEVER override the golden vectors as the source of truth. The orchestrator re-runs the harness after.
+Style-Devin — task: clean formatting/naming/comments in the RTL WITHOUT changing behavior, commit. The orchestrator re-runs the harness to confirm behavior is unchanged.
+Final commit on the branch = the verified, clean design. Then run Yosys synthesis targeting a real FPGA architecture (iCE40 via synth_ice40 by default) to produce a device-specific resource report (e.g. LUT4 count for the iCE40) as proof it is real, FPGA-buildable hardware — not an abstract gate count.
+Parallelism / "swarm": we run this whole 3-Devin pipeline across MULTIPLE attempts at once (multiple branches). Concurrency is across attempts, not within one. A later stage adds a leaderboard comparing the parallel implementations.
+Why FPGA (the delivery context — informs the code, not just the pitch): the target is a drop-in replacement for a discontinued chip. Re-fabricating silicon needs masks and a foundry — millions of dollars, low-volume-hostile. An FPGA is commodity silicon reconfigured post-purchase: no fab, reprogrammable in the field, and matched to the defense market's low-volume/high-mix reality. So the pipeline's output must be a design proven to map onto a real FPGA — that is why synthesis is FPGA-targeted (§2), and why the resource report is device-specific. The MVP proves the design + verification step (spec → verified, FPGA-synthesizable RTL). It does not flash a physical board — we have no board, and physical qualification/certification are explicitly out of scope (§5). Keep that boundary crisp: "FPGA-ready and FPGA-synthesized," never "flashed onto hardware."
+Non-negotiable design principles:
+Humans own the golden vectors. They are the ground truth. No Devin writes or edits them.
+Instrument the harness, not the agent. All UI state comes from structured events our harness/orchestrator emit, and from Devin's structured_output field — NEVER from parsing a Devin session's natural-language chatter.
+Verify exhaustively where the input space is small enough (both our chips qualify), so there is nothing for a Devin to "overfit" to. Do not expose only a subset of vectors that a Devin could hard-code against.
+
+2. Tech stack (fixed — do not substitute)
+Orchestrator + harness: Python 3.
+Backend/event server: FastAPI, streaming events to the UI over SSE.
+UI: React + Vite. It must look like a clean, dark, mission-control / defense-console "command room" — pipeline graph of the three agents with animated handoffs, live per-agent status, and a proof panel (vector pass count, waveform, synthesis numbers). Clean and sharp.
+EDA toolchain (CLI): Icarus Verilog (iverilog + vvp) for simulation, Yosys for synthesis. Yosys must target a real FPGA architecture — default iCE40 (synth_ice40); keep the target configurable (e.g. synth_ecp5) via one setting. Parse the device-specific resource report (LUT4 count, etc.) — this is the "FPGA-ready hardware" proof.
+Optional / stretch, only if explicitly approved later: nextpnr place-and-route to get real timing (Fmax) for an FPGA part. This is the ONLY way to get true Fmax — do NOT report Fmax from synthesis alone or invent it. Until nextpnr is added, the leaderboard compares LUT/resource count only, not timing.
+Assume all tools are installed locally on PATH. Do NOT build a Docker image — we handle containerization later. If a tool is missing, report it at the Stage 0 check.
+Devin: the official REST API only.
+Base: https://api.devin.ai/v1
+Auth: Authorization: Bearer $DEVIN_API_KEY — read the key from the DEVIN_API_KEY env var. NEVER hardcode it or print it.
+Create a session: POST /sessions with a JSON prompt → returns session_id and url.
+Poll a session: GET /session/{session_id} → returns status_enum (running | blocked | stopped) and a structured_output object. Poll with backoff.
+Ask Devin tasks to emit their result into structured_output (e.g. commit SHA, files changed) so the orchestrator reads structured data, not prose.
+
+3. Repo layout (create this structure)
+/spec/                 # HUMAN-OWNED ground truth. No Devin touches this.
+    chips/74138.py      #   golden model (Python fn) + exhaustive vector generator
+    chips/82s100.py     #   second chip config (see §7)
+    registry.py         #   maps chip id -> golden model + metadata (input/output widths)
+/harness/
+    check_vectors.py    # compile RTL w/ iverilog, sim w/ vvp, compare to golden vectors,
+                        #   emit ONE JSON event line; exit 0 on full pass
+    run_synth.py        # run Yosys targeting iCE40 (synth_ice40), parse DEVICE resource report, emit event
+    events.py           # the JSON event schema + emit helper
+/rtl/                  # Devin writes .v files here (per branch)
+/orchestrator/
+    devin_client.py     # thin official-REST wrapper: create/poll/backoff, key from env
+    pipeline.py         # the 3-Devin git-as-bus loop for ONE attempt (coder->tb->style)
+    run.py              # entrypoint: run pipeline for N attempts / chips
+    caps.py             # attempt + wall-clock + session-count ceilings (see §4)
+/server/
+    app.py              # FastAPI: exposes events as SSE, serves run controls
+/ui/                   # React + Vite command room
+README.md
+
+Event schema (one line per event, both to stdout and to the SSE stream):
+{"ts": "...", "chip": "74138", "branch": "attempt/74138-01", "agent": "coder|testbencher|style|harness|synth",
+ "stage": "generate|verify|coverage|cleanup|synthesize", "attempt": 1,
+ "passed": 47, "total": 64, "status": "running|pass|fail|stalled|error",
+ "session_id": "...", "session_url": "...", "artifact_path": "...", "detail": "short human-readable"}
+
+
+4. Guardrails (hard limits — implement these before any real Devin call)
+Max 6 attempts per chip. After 6 failing Coder iterations, stop that branch and report.
+~15 min wall-clock timeout per Devin session. On timeout, mark the session stalled, emit an event, and stop that branch cleanly — never hang the UI on a frozen session.
+Global session ceiling: a configurable cap on total concurrent + total lifetime Devin sessions per run (default: max 4 concurrent, max 20 total per run) so a runaway loop cannot burn the token budget. Refuse to exceed it and report.
+Every failure is visible, never silent. A stalled/errored/blocked session must surface in the UI as that state, with its session_url, not as a spinner that never resolves.
+No mock/fake solver. The coding loop is driven by the real Devin API, period. (Failure states are made visible per above; they are not faked away.)
+
+5. Scope walls (do NOT do any of these — refuse and flag if asked)
+No analog / mixed-signal / RF / power / rad-hard parts. Digital logic with a published, golden-model-able spec ONLY.
+No physical FPGA flashing / no real board. FPGA-targeted synthesis (and, only if later approved, place-and-route) is in scope; putting a bitstream on hardware is NOT.
+No Docker (later).
+No certification/qualification logic or claims.
+No chip beyond the two specified (74138, 82S100) in this build.
+No letting any Devin author or modify golden vectors.
+No parsing Devin natural-language output for pipeline state.
+No scope additions of any kind without asking first.
+
+6. Primary chip — the 74138 (3-to-8 line decoder/demux)
+This is the priority target; get the whole pipeline working on it first.
+Spec (this is the golden truth to encode in /spec/chips/74138.py):
+Inputs (6 total): A0, A1, A2 (3-bit select), plus enables G1 (active HIGH), G2A_n (active LOW), G2B_n (active LOW).
+Outputs: Y0..Y7, active LOW.
+Behavior: the decoder is enabled only when G1 == 1 AND G2A_n == 0 AND G2B_n == 0.
+When enabled: output Y[sel] is driven LOW (0), all other outputs HIGH (1), where sel = {A2,A1,A0}.
+When NOT enabled: ALL outputs HIGH (1).
+Input space = 2^6 = 64 combinations → verify EXHAUSTIVELY. Generate all 64 golden vectors; the design must pass all 64.
+Note the natural bug surface (active-low outputs + 3-term enable) — a first-pass RTL that gets polarity or enable logic wrong is expected, and driving the real fail→fix loop is the point. Do NOT seed a fake bug; let the real loop earn it.
+
+7. Second chip — the 82S100 (16-in / 8-out FPLA), as an address decoder
+Secondary target; wire it in as a second registry config once 74138 works.
+Chosen programmed instance (encode in /spec/chips/82s100.py):
+16 address inputs A0..A15, 8 outputs Y0..Y7 active LOW (chip-selects).
+Default function: decode the top 3 address bits A[15:13] into 8 regions — Yi_n = 0 when A[15:13] == i, else 1. To exercise real sum-of-products behavior, make at least one output active for TWO disjoint ranges (a genuine 2-product-term output) rather than a single contiguous region. Keep it simple and fully documented in the file.
+Input space = 2^16 = 65,536 → verify EXHAUSTIVELY.
+Framing (for our reference, not for code): this is the real part a Navy contractor is recreating; exhaustive equivalence over all 65,536 inputs is the rigor claim.
+
+8. Build stages — STOP and report after EACH one
+After every stage: report (a) what you built, (b) exactly how you verified it — with the command(s) you ran and their output, (c) anything unexpected, (d) what the human should click/check to confirm. Then WAIT for approval. Do not start the next stage unprompted.
+STAGE 0 — Scaffold + environment + connection checks (NO Devin task calls yet):
+Create the repo structure and the event schema.
+Verify the local environment: iverilog, vvp, yosys present (report versions); DEVIN_API_KEY is set (confirm presence only — never print it); confirm the GitHub repo is reachable and that Devin can push to it (a minimal auth ping to the Devin API to confirm the key works — a single cheap call, e.g. list/validate — NOT a coding session).
+Report the results of every check. STOP.
+STAGE 1 — Harness + golden models, proven WITHOUT Devin:
+Implement /spec/chips/74138.py, the harness (check_vectors.py, run_synth.py, events.py), and the registry.
+Hand-write TWO Verilog files to test the harness itself: one CORRECT 74138 and one DELIBERATELY BROKEN (e.g. flipped output polarity). Prove: harness passes the correct one (64/64) and fails the broken one with a clean, specific mismatch event. Run Yosys (FPGA-targeted, iCE40) on the correct one and show the device resource report.
+Report both runs' output. STOP. This proves the verification spine before any tokens are spent.
+STAGE 2 — Single Coder-Devin loop to green on the 74138 (first real Devin usage):
+Implement devin_client.py (official REST, key from env, backoff polling) and a minimal pipeline.py that runs ONLY the Coder stage with loop-back: create Coder-Devin session → it writes/commits /rtl/74138.v on a branch → orchestrator runs harness → on fail, feed failing vectors back → loop (cap 6). Enforce all §4 caps.
+Run it for real on the 74138. Report the attempt-by-attempt log, the final pass (64/64), and total sessions/ACUs used. STOP. Do not build the other two agents until this is confirmed.
+STAGE 3 — Add Testbencher-Devin + Style-Devin (full 3-agent pipeline):
+Extend pipeline.py to the full git-as-bus sequence in §1: Coder → (harness gate) → Testbencher (adds coverage, harness re-run) → Style (cleanup, harness re-run) → synthesis.
+Run the full pipeline on the 74138. Report the branch's commit history (showing each agent's handoff), the final green harness run, and the synthesis report. STOP.
+STAGE 4 — UI command room streaming live:
+Build the FastAPI SSE server and the React+Vite command room: agent pipeline graph with animated handoffs, live per-agent status (incl. stalled/error states + session URLs), and the proof panel (vector pass count ticking, waveform from the sim, Yosys resource summary). Dark, sharp, mission-control aesthetic.
+Run a full 74138 pipeline with the UI live. Report how to launch it and what the human should see. STOP.
+STAGE 5 — Wire in the 82S100:
+Add /spec/chips/82s100.py and register it. Run the full pipeline on the 82S100; confirm exhaustive 65,536-vector verification passes and synthesis reports. Report. STOP.
+STAGE 6 — Parallel leaderboard (behind a flag):
+Add a mode that runs the pipeline across N parallel attempts (multiple branches at once, respecting the concurrency cap) and a leaderboard view comparing implementations by resource usage (LUTs/gates) with the best highlighted, all verified against the same golden vectors. Keep it behind a flag so the core single-pipeline demo is never destabilized.
+Report. STOP.
+
+9. If the fail→fix loop converges TOO reliably (a good problem)
+If Coder-Devin nails the 74138 first try every time and there's no visible recovery beat, do NOT fake a bug in the core path. Instead, propose (and wait for approval on) either: (a) an optional --demo-seed-bug polarity flag on a SEPARATE demo branch that starts the Coder from a known-wrong stub, clearly labeled as demo mode; or (b) pointing the pipeline at a harder target (a clocked/sequential part) as a stretch. Ask before doing either.
+
+10. Definition of done for this MVP
+Real Devin sessions, coordinated via git-as-bus with a human-truth harness, take the 74138 (and 82S100) from spec to an exhaustively-verified, cleaned-up, synthesized RTL design — with a live command-room UI showing the three agents collaborating and the proof (vectors, waveform, resource report) — plus an optional parallel leaderboard. Every stage was verified and human-approved before the next began.
+Begin with STAGE 0. Report back when it's done.
+
+
+also is "entire" activated? we need to make sure we are using it
+
+---
+
+REDACTED
