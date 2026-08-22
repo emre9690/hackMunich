@@ -1,7 +1,5 @@
-`timescale 1ns / 1ps
-
-// 74138: 3-to-8 line decoder / demultiplexer.
-// Active-low outputs; enabled when G1 is high and both G2A_n, G2B_n are low.
+// 74138 3-to-8 line decoder/demultiplexer
+// Active-low outputs; enabled iff G1 == 1 && G2A_n == 0 && G2B_n == 0.
 module decoder_74138 (
     input  wire A0,
     input  wire A1,
