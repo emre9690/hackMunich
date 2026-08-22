@@ -34,18 +34,20 @@ export default function App() {
   const branch = events.length ? events[events.length - 1].branch : null;
 
   async function handleLaunch() {
-    // Every attempt spends up to 3 real, billed Devin sessions (coder +
-    // testbencher + style). This creates real cloud sessions the moment you
-    // confirm -- there is no dry-run. A silent one-click launch of several
-    // parallel attempts is how an unintended multi-session spend happens.
-    const estimatedSessions = attempts * 3;
-    const confirmed = window.confirm(
-      `This launches ${attempts} attempt${attempts > 1 ? "s" : ""} on ${chip}` +
-        (parallel && attempts > 1 ? " in PARALLEL" : "") +
-        `, creating up to ~${estimatedSessions} real Devin session${estimatedSessions > 1 ? "s" : ""}` +
-        ` (billed). Continue?`
-    );
-    if (!confirmed) return;
+    // A single attempt is the normal, everyday action this whole UI exists
+    // for -- warning on every click of it is just friction. Only the
+    // elevated case (attempts > 1, especially with --parallel) is what
+    // actually caused an unintended ~12-session spend, so only that case
+    // gets a confirm gate.
+    if (attempts > 1) {
+      const estimatedSessions = attempts * 3;
+      const confirmed = window.confirm(
+        `This launches ${attempts} attempts on ${chip}` +
+          (parallel ? " in PARALLEL" : "") +
+          `, creating up to ~${estimatedSessions} real Devin sessions (billed). Continue?`
+      );
+      if (!confirmed) return;
+    }
 
     setLaunching(true);
     setLaunchError(null);
