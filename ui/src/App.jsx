@@ -32,6 +32,19 @@ export default function App() {
   const branch = events.length ? events[events.length - 1].branch : null;
 
   async function handleLaunch() {
+    // Every attempt spends up to 3 real, billed Devin sessions (coder +
+    // testbencher + style). This creates real cloud sessions the moment you
+    // confirm -- there is no dry-run. A silent one-click launch of several
+    // parallel attempts is how an unintended multi-session spend happens.
+    const estimatedSessions = attempts * 3;
+    const confirmed = window.confirm(
+      `This launches ${attempts} attempt${attempts > 1 ? "s" : ""} on ${chip}` +
+        (parallel && attempts > 1 ? " in PARALLEL" : "") +
+        `, creating up to ~${estimatedSessions} real Devin session${estimatedSessions > 1 ? "s" : ""}` +
+        ` (billed). Continue?`
+    );
+    if (!confirmed) return;
+
     setLaunching(true);
     setLaunchError(null);
     try {
