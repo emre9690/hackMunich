@@ -26,6 +26,14 @@ export async function resetRuns() {
   return res.json();
 }
 
+export async function fetchBranchFile(branch, path) {
+  const res = await fetch(
+    apiUrl(`/api/branch-file?branch=${encodeURIComponent(branch)}&path=${encodeURIComponent(path)}`)
+  );
+  if (!res.ok) throw new Error(`fetch branch file failed: ${res.status}`);
+  return res.text();
+}
+
 export async function fetchChips() {
   const res = await fetch(apiUrl("/api/chips"));
   if (!res.ok) throw new Error(`fetch chips failed: ${res.status}`);

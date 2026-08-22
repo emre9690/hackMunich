@@ -96,8 +96,28 @@ def _create_and_poll(
         emit(chip=chip_id, branch=branch, agent=agent, stage=stage, attempt=attempt,
              status="running", session_id=handle.session_id, session_url=handle.url,
              detail="session created, polling for completion")
+
+        # Live activity feed: as Devin narrates its own progress, surface each
+        # new message as a 'running' event so the UI can show it happening in
+        # near-real-time. Purely informational -- the harness, never this
+        # chatter, decides pass/fail.
+        seen_message_ids: set[str] = set()
+
+        def on_poll(state: devin_client.SessionState) -> None:
+            for msg in state.messages:
+                mid = msg.get("event_id")
+                if not mid or mid in seen_message_ids or msg.get("type") == "initial_user_message":
+                    continue
+                seen_message_ids.add(mid)
+                text = (msg.get("message") or "").strip()
+                if text:
+                    emit(chip=chip_id, branch=branch, agent=agent, stage=stage, attempt=attempt,
+                         status="running", session_id=handle.session_id, session_url=handle.url,
+                         detail=text[:400])
+
         state, timed_out = devin_client.poll_until_done(
             handle.session_id, timeout_seconds=SESSION_WALLCLOCK_TIMEOUT_SECONDS,
+            on_poll=on_poll,
         )
     finally:
         budget.release()

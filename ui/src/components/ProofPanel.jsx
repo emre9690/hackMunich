@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import Waveform from "./Waveform";
+import CodePanel from "./CodePanel";
 import { apiUrl } from "../lib/api";
 
 function lastMatching(events, pred) {
@@ -76,8 +76,8 @@ export default function ProofPanel({ events }) {
       </div>
 
       <div className="proof-section">
-        <div className="proof-section-title">Waveform (from simulation)</div>
-        <Waveform artifactPath={verifyEvent?.artifact_path} />
+        <div className="proof-section-title">Live code</div>
+        <CodePanel events={events} />
       </div>
 
       <div className="proof-section">

@@ -4,9 +4,11 @@ Base: https://api.devin.ai/v1
 Auth: Authorization: Bearer $DEVIN_API_KEY, read from the env var only --
 never hardcoded, never logged, never printed.
 
-The orchestrator only creates and polls sessions. It never messages a
-session interactively, and it never reads a session's natural-language
-output for pipeline state -- only status_enum and structured_output.
+The orchestrator only creates and polls sessions -- it never messages a
+session interactively. Pass/fail is decided from status_enum, git branch
+state, and the harness alone, never from a session's natural-language
+messages; those are exposed (SessionState.messages) purely so a live
+activity feed can show them, never as a source of pipeline truth.
 """
 from __future__ import annotations
 
@@ -53,6 +55,16 @@ class SessionState:
     @property
     def is_running(self) -> bool:
         return self.status_enum not in TERMINAL_STATUSES
+
+    @property
+    def messages(self) -> list[dict[str, Any]]:
+        """Devin's own narrated messages for this session, oldest first.
+
+        Purely informational for a live activity feed -- never used to
+        decide pass/fail (that stays the harness's job alone), and the
+        first entry is always our own prompt echoed back, not new activity.
+        """
+        return self.raw.get("messages") or []
 
 
 def _api_key() -> str:

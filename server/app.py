@@ -227,6 +227,31 @@ def leaderboard(chip: str) -> dict:
     return {"chip": chip, "entries": rows}
 
 
+_BRANCH_RE = re.compile(r"^attempt/[a-z0-9]+-\d+$")
+_RTL_PATH_RE = re.compile(r"^rtl/[\w.-]+\.v$")
+
+
+@app.get("/api/branch-file")
+def get_branch_file(branch: str, path: str) -> PlainTextResponse:
+    """Live code panel: fetch a file's actual content straight from the git
+    branch (the real source of truth), the same way the harness does --
+    never from a local temp file, which the harness deletes right after
+    verifying it."""
+    if not _BRANCH_RE.match(branch):
+        raise HTTPException(400, f"invalid branch format: {branch!r}")
+    if not _RTL_PATH_RE.match(path):
+        raise HTTPException(400, f"invalid rtl path format: {path!r}")
+
+    subprocess.run(["git", "fetch", "origin", branch], cwd=str(_REPO_ROOT),
+                    capture_output=True, text=True, timeout=30)
+    result = subprocess.run(["git", "show", f"origin/{branch}:{path}"], cwd=str(_REPO_ROOT),
+                             capture_output=True, text=True, timeout=30)
+    if result.returncode != 0:
+        raise HTTPException(404, f"{path} not found on origin/{branch}")
+
+    return PlainTextResponse(result.stdout)
+
+
 _ALLOWED_ARTIFACT_SUFFIXES = {".vcd", ".txt"}
 
 

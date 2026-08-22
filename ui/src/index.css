@@ -348,8 +348,7 @@ body {
 }
 
 .agent-status-empty,
-.proof-empty,
-.waveform-empty {
+.proof-empty {
   color: var(--text-dim);
   font-family: var(--mono);
   font-size: 12px;
@@ -507,53 +506,112 @@ body {
   max-height: 180px;
 }
 
-/* Waveform */
+/* Activity feed */
 
-.waveform-rows {
+.activity-feed {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px 18px;
+}
+
+.activity-feed-scroll {
+  max-height: 160px;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 2px;
 }
 
-.waveform-row {
+.activity-line {
   display: flex;
-  align-items: center;
   gap: 8px;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.5;
 }
 
-.waveform-label {
-  width: 56px;
+.activity-time {
+  color: var(--text-dim);
   flex-shrink: 0;
-  font-family: var(--mono);
-  font-size: 10px;
-  color: var(--text-dim);
-  text-align: right;
 }
 
-.waveform-cells {
+.activity-agent {
+  color: var(--accent);
+  flex-shrink: 0;
+  text-transform: uppercase;
+  font-size: 10px;
+  width: 72px;
+}
+
+.activity-text {
+  color: var(--text);
+  word-break: break-word;
+}
+
+/* Code panel */
+
+.code-panel-header {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-bottom: 8px;
+}
+
+.code-panel-agent {
+  color: var(--accent);
+  text-transform: uppercase;
+  font-weight: 700;
+}
+
+.code-panel-path {
+  color: var(--text);
+}
+
+.code-panel-body {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 0;
+  max-height: 320px;
+  overflow: auto;
+  margin: 0;
+}
+
+.code-line {
   display: flex;
-  gap: 1px;
-}
-
-.waveform-cell {
-  width: 6px;
-  height: 14px;
-  border-radius: 1px;
-}
-
-.waveform-cell.on {
-  background: var(--c-pass);
-}
-
-.waveform-cell.off {
-  background: var(--border);
-}
-
-.waveform-note {
-  margin-top: 8px;
-  font-size: 10px;
-  color: var(--text-dim);
   font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.6;
+  padding: 0 10px;
+  white-space: pre;
+}
+
+.code-line-no {
+  color: var(--text-dim);
+  opacity: 0.5;
+  width: 32px;
+  flex-shrink: 0;
+  text-align: right;
+  margin-right: 12px;
+  user-select: none;
+}
+
+.tok-keyword {
+  color: var(--accent);
+}
+
+.tok-number {
+  color: #f59e0b;
+}
+
+.tok-comment {
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+.tok-plain {
+  color: var(--text);
 }
 
 /* Leaderboard */

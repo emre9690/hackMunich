@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useEvents } from "./lib/useEvents";
 import { startRun, fetchChips, resetRuns, killAll } from "./lib/api";
 import PipelineGraph from "./components/PipelineGraph";
+import ActivityFeed from "./components/ActivityFeed";
 import AgentStatus from "./components/AgentStatus";
 import ProofPanel from "./components/ProofPanel";
 import Leaderboard from "./components/Leaderboard";
@@ -154,6 +155,7 @@ export default function App() {
       <main className="app-main">
         <section className="app-graph-section">
           <PipelineGraph events={events} />
+          <ActivityFeed events={events} />
           <AgentStatus events={events} />
         </section>
         <section className="app-proof-section">
