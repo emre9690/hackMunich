@@ -1,0 +1,5 @@
+can you add a "kill all orchestrator" button so i don't get runaway processes. is this good to add?
+
+---
+
+"This launches 1 attempt on 82s100, creating up to ~3 real Devin sessions (billed). Continue?" why is this here

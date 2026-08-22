@@ -1,0 +1,79 @@
+{
+  "cli_version": "0.10.2",
+  "checkpoint_id": "01M0N5XMNJ4Y6B0G09WPHG4NMH",
+  "session_id": "c819efd9-e89b-4512-9e33-7eeac497624d",
+  "strategy": "manual-commit",
+  "created_at": "2026-08-22T16:47:34.817618Z",
+  "branch": "main",
+  "checkpoints_count": 2,
+  "save_step_count": 2,
+  "files_touched": [],
+  "agent": "Claude Code",
+  "model": "claude-sonnet-5",
+  "turn_id": "e1b926f43163",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 814,
+    "cache_creation_tokens": 743020,
+    "cache_read_tokens": 111528539,
+    "output_tokens": 282608,
+    "api_call_count": 407
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_01NtEyULEopd4JWpNx59FoSS",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "run"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "e1b926f43163",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 798,
+        "end": 799,
+        "entry_ids": [
+          "383f54a8-f251-4f7d-8358-eab7a4932fcd"
+        ],
+        "tool_use_id": "toolu_01NtEyULEopd4JWpNx59FoSS"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01NtEyULEopd4JWpNx59FoSS"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: run",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 14
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 89,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".claude/scheduled_tasks.lock": 1,
+        ".codex/hooks.json": 88
+      }
+    }
+  ]
+}
