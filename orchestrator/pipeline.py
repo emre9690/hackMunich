@@ -34,9 +34,16 @@ from spec.registry import ChipSpec, load_chip  # noqa: E402
 
 GITHUB_REPO = "emre9690/hackMunich"
 
+# Stage 6 runs multiple attempts' git operations concurrently against the
+# same local working copy. A bounded timeout turns any lock contention or
+# network hang into a loud, visible failure instead of a silent forever-hang
+# with no subprocess left to even inspect.
+_GIT_TIMEOUT_SECONDS = 60
+
 
 def _git(*args: str, check: bool = True) -> subprocess.CompletedProcess:
-    return subprocess.run(["git", *args], cwd=_REPO_ROOT, capture_output=True, text=True, check=check)
+    return subprocess.run(["git", *args], cwd=_REPO_ROOT, capture_output=True, text=True,
+                           check=check, timeout=_GIT_TIMEOUT_SECONDS)
 
 
 def branch_name(chip_id: str, run_id: int) -> str:
@@ -45,7 +52,6 @@ def branch_name(chip_id: str, run_id: int) -> str:
 
 def ensure_remote_branch(branch: str) -> None:
     """Create `branch` on origin pointing at current local HEAD, if absent."""
-    _git("fetch", "origin", "main")
     exists = _git("ls-remote", "--exit-code", "--heads", "origin", branch, check=False)
     if exists.returncode == 0 and exists.stdout.strip():
         return
@@ -349,6 +355,22 @@ def run_style_stage(chip_id: str, branch: str, run_id: int, budget: SessionBudge
 # ---------------------------------------------------------------------------
 
 def run_pipeline(chip_id: str, run_id: int, budget: SessionBudget, *, synth_target: str = "ice40") -> dict:
+    """Runs the full pipeline for one attempt. Never raises: any unexpected
+    failure (e.g. a git operation timing out under Stage 6's concurrent
+    attempts) is caught and turned into a visible error event + failed
+    result, so one attempt's crash can never silently kill the whole batch
+    or leave a hung UI state (brief §4: every failure is visible)."""
+    branch = branch_name(chip_id, run_id)
+    try:
+        return _run_pipeline_inner(chip_id, run_id, budget, synth_target=synth_target)
+    except Exception as e:  # noqa: BLE001 -- deliberately broad, see docstring
+        emit(chip=chip_id, branch=branch, agent="harness", stage="verify", attempt=0,
+             status="error", detail=f"pipeline crashed unexpectedly: {e!r}")
+        return {"chip": chip_id, "run_id": run_id, "branch": branch, "coder_passed": False,
+                "error": repr(e)}
+
+
+def _run_pipeline_inner(chip_id: str, run_id: int, budget: SessionBudget, *, synth_target: str) -> dict:
     result: dict = {"chip": chip_id, "run_id": run_id}
 
     coder_passed, branch = run_coder_loop(chip_id, run_id, budget)

@@ -71,7 +71,7 @@ async def _pump_process(run_id: str, proc: asyncio.subprocess.Process) -> None:
 class RunRequest(BaseModel):
     chip: str
     attempts: int = 1
-    synth_target: str = "ice40"
+    parallel: bool = False  # Stage 6: run `attempts` branches concurrently
 
 
 @app.get("/api/chips")
@@ -111,11 +111,16 @@ async def start_run(req: RunRequest) -> dict:
         "--attempts", str(req.attempts),
         "--start-run-id", str(start_run_id),
     ]
+    if req.parallel:
+        cmd.append("--parallel")
     proc = await asyncio.create_subprocess_exec(
         *cmd, cwd=str(_REPO_ROOT),
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
     )
-    _runs[run_id] = {"chip": req.chip, "attempts": req.attempts, "pid": proc.pid, "status": "running"}
+    _runs[run_id] = {
+        "chip": req.chip, "attempts": req.attempts, "parallel": req.parallel,
+        "pid": proc.pid, "status": "running",
+    }
     asyncio.create_task(_pump_process(run_id, proc))
     return {"run_id": run_id, "pid": proc.pid}
 
@@ -136,6 +141,47 @@ async def stream_events() -> StreamingResponse:
             _subscribers.remove(queue)
 
     return StreamingResponse(gen(), media_type="text/event-stream")
+
+
+@app.get("/api/leaderboard")
+def leaderboard(chip: str) -> dict:
+    """Stage 6: compare parallel attempts by resource usage (LUT count),
+    all verified against the same golden vectors. Derived entirely from the
+    structured event history -- an entry only appears if its branch's most
+    recent verify AND synth events both report status=='pass'."""
+    by_branch: dict[str, dict] = {}
+    prefix = f"attempt/{chip}-"
+    for event in _history:
+        branch = event.get("branch") or ""
+        if event.get("chip") != chip or not branch.startswith(prefix):
+            continue
+        entry = by_branch.setdefault(branch, {})
+        if event.get("stage") == "verify":
+            entry["last_verify"] = event
+        elif event.get("stage") == "synthesize":
+            entry["last_synth"] = event
+
+    rows = []
+    for branch, entry in by_branch.items():
+        verify = entry.get("last_verify")
+        synth = entry.get("last_synth")
+        if not verify or verify.get("status") != "pass":
+            continue
+        if not synth or synth.get("status") != "pass":
+            continue
+        rows.append({
+            "branch": branch,
+            "passed": verify.get("passed"),
+            "total": verify.get("total"),
+            "lut_count": synth.get("passed"),
+            "synth_detail": synth.get("detail"),
+        })
+
+    rows.sort(key=lambda r: r["lut_count"])
+    for i, row in enumerate(rows):
+        row["best"] = i == 0
+
+    return {"chip": chip, "entries": rows}
 
 
 _ALLOWED_ARTIFACT_SUFFIXES = {".vcd", ".txt"}

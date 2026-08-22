@@ -8,12 +8,18 @@ from __future__ import annotations
 
 import json
 import sys
+import threading
 from datetime import datetime, timezone
 from typing import Any, Literal, Optional
 
 AGENTS = ("coder", "testbencher", "style", "harness", "synth")
 STAGES = ("generate", "verify", "coverage", "cleanup", "synthesize")
 STATUSES = ("running", "pass", "fail", "stalled", "error")
+
+# Stage 6 runs multiple attempt pipelines concurrently in separate threads,
+# all emitting to the same stdout -- serialize each line so two events can
+# never interleave into one malformed line for the SSE relay to choke on.
+_PRINT_LOCK = threading.Lock()
 
 Agent = Literal["coder", "testbencher", "style", "harness", "synth"]
 Stage = Literal["generate", "verify", "coverage", "cleanup", "synthesize"]
@@ -65,5 +71,6 @@ def emit(
     }
 
     line = json.dumps(event)
-    print(line, file=stream or sys.stdout, flush=True)
+    with _PRINT_LOCK:
+        print(line, file=stream or sys.stdout, flush=True)
     return event
