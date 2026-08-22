@@ -11,3 +11,11 @@ what does having the waveform here even do for us, im so confused as of to what 
 ---
 
 we don't need the waveform. can you instead make something where you can actively see the verilog code being written and stuff happening. also how should we go about uploading our own spec to this and human reviewed thingy
+
+---
+
+when we click the first button, can you make it so it shows the loading instead of nothing. also how are we differentiating from a gpt wrapper. also its time to add the ability to upload the documentation of the chip before starting to write for any custom chip. also this takes so long to do can you cut some corners so it doesnt take 5 minutes. the output should be similar. maybe something like 1/10th of the test cases instead of all 65000. or something else to make it faster we don't have time for that in the demo. no mistakes.
+
+---
+
+i changed wifi, go now do it it got interrupted
