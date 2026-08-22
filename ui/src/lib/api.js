@@ -46,6 +46,10 @@ export async function fetchChips() {
   return res.json();
 }
 
+export function exportChipZipUrl(chipId, branch) {
+  return apiUrl(`/api/export/${encodeURIComponent(chipId)}?branch=${encodeURIComponent(branch)}`);
+}
+
 export async function fetchChipPorts(chipId) {
   const res = await fetch(apiUrl(`/api/chips/${encodeURIComponent(chipId)}/ports`));
   if (!res.ok) throw new Error(`fetch chip ports failed: ${res.status}`);

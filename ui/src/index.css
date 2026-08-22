@@ -395,6 +395,33 @@ body {
   font-weight: 700;
 }
 
+.proof-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.proof-panel-header h3 {
+  margin: 0;
+}
+
+.proof-export-btn {
+  font-family: var(--sans);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  text-decoration: none;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  padding: 4px 10px;
+  white-space: nowrap;
+}
+
+.proof-export-btn:hover {
+  background: rgba(37, 99, 235, 0.06);
+}
+
 .agent-status-empty,
 .proof-empty {
   color: var(--text-dim);

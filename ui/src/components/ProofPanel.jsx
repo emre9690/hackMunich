@@ -1,10 +1,20 @@
 import { useEffect, useState } from "react";
 import CodePanel from "./CodePanel";
-import { apiUrl } from "../lib/api";
+import { apiUrl, exportChipZipUrl } from "../lib/api";
 
 function lastMatching(events, pred) {
   for (let i = events.length - 1; i >= 0; i--) {
     if (pred(events[i])) return events[i];
+  }
+  return null;
+}
+
+// Same "ignore drafter events" rule as the schematic panel -- a chip isn't
+// really exportable (no rtl/ yet) until the RTL pipeline has touched it.
+function currentChipBranch(events) {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i];
+    if (e.chip && e.branch && e.agent !== "drafter") return { chip: e.chip, branch: e.branch };
   }
   return null;
 }
@@ -46,10 +56,22 @@ export default function ProofPanel({ events }) {
   }, [synthEvent?.artifact_path]);
 
   const pct = verifyEvent && verifyEvent.total ? (verifyEvent.passed / verifyEvent.total) * 100 : 0;
+  const chipBranch = currentChipBranch(events);
 
   return (
     <div className="proof-panel">
-      <h3>Proof</h3>
+      <div className="proof-panel-header">
+        <h3>Proof</h3>
+        {chipBranch && (
+          <a
+            className="proof-export-btn"
+            href={exportChipZipUrl(chipBranch.chip, chipBranch.branch)}
+            download
+          >
+            ⬇ Export project (.zip)
+          </a>
+        )}
+      </div>
 
       <div className="proof-section">
         <div className="proof-section-title">Exhaustive vector verification</div>

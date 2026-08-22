@@ -44,10 +44,14 @@ _GIT_TIMEOUT_SECONDS = 60
 
 # A degraded (not down) connection can make a single git network op --
 # push/fetch/ls-remote -- run past the timeout, or fail fast with a DNS/
-# connection error, even though nothing is actually broken; retry a few
-# times before treating it as a real failure.
-_GIT_TIMEOUT_RETRY_LIMIT = 3
-_GIT_TIMEOUT_RETRY_DELAY_SECONDS = 5
+# connection error, even though nothing is actually broken; retry before
+# treating it as a real failure. Same reasoning as devin_client.py's
+# transient-retry budget: fast-failing errors (DNS resolution failure)
+# don't eat the per-attempt timeout at all, so a short retry count left
+# very little real margin against an outage of the length actually
+# observed on this network (60s+).
+_GIT_TIMEOUT_RETRY_LIMIT = 6
+_GIT_TIMEOUT_RETRY_DELAY_SECONDS = 8
 
 # Substrings of git's stderr that indicate a transient network failure
 # (DNS, connection refused/reset/timed out) rather than a real git error

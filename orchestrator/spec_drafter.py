@@ -132,10 +132,12 @@ _GIT_TIMEOUT_SECONDS = 60
 
 # A degraded (not down) connection can make a single git network op run past
 # the timeout, or fail fast with a DNS/connection error, even though nothing
-# is actually broken; retry a few times before treating it as a real
-# failure. Same fix as orchestrator/pipeline.py.
-_GIT_TIMEOUT_RETRY_LIMIT = 3
-_GIT_TIMEOUT_RETRY_DELAY_SECONDS = 5
+# is actually broken; retry before treating it as a real failure. Same
+# reasoning as orchestrator/pipeline.py and devin_client.py's transient
+# budget -- a short retry count left too little margin against outages of
+# the length actually observed here (60s+).
+_GIT_TIMEOUT_RETRY_LIMIT = 6
+_GIT_TIMEOUT_RETRY_DELAY_SECONDS = 8
 
 _TRANSIENT_GIT_ERROR_MARKERS = (
     "could not resolve host",

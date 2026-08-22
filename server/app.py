@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import io
 import json
 import os
 import pathlib
@@ -19,11 +20,12 @@ import subprocess
 import sys
 import tempfile
 import time
+import zipfile
 from typing import AsyncIterator
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import PlainTextResponse, StreamingResponse
+from fastapi.responses import PlainTextResponse, Response, StreamingResponse
 from pydantic import BaseModel
 
 _REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -170,7 +172,8 @@ def _commit_and_push_chip_files(chip_id: str) -> None:
     empty and had to go hunting on the drafts/ branch instead -- correct
     paths save a real detour, not just a cosmetic one."""
     rel_paths = [f"spec/chips/{chip_id}.py", "spec/registry.py"]
-    for attempt in range(3):
+    last_attempt = _SERVER_GIT_RETRY_LIMIT - 1
+    for attempt in range(_SERVER_GIT_RETRY_LIMIT):
         subprocess.run(["git", "add", *rel_paths], cwd=str(_REPO_ROOT),
                         capture_output=True, text=True, timeout=30)
         commit = subprocess.run(
@@ -185,8 +188,8 @@ def _commit_and_push_chip_files(chip_id: str) -> None:
                                capture_output=True, text=True, timeout=60)
         if push.returncode == 0:
             return
-        if attempt < 2 and any(m in push.stderr.lower() for m in _TRANSIENT_GIT_ERROR_MARKERS):
-            time.sleep(3)
+        if attempt < last_attempt and any(m in push.stderr.lower() for m in _TRANSIENT_GIT_ERROR_MARKERS):
+            time.sleep(_SERVER_GIT_RETRY_DELAY_SECONDS)
             continue
         raise RuntimeError(f"git push to main failed for {chip_id!r}: {push.stderr}")
 
@@ -436,6 +439,12 @@ _TRANSIENT_GIT_ERROR_MARKERS = (
     "connection refused", "connection reset by peer", "unable to access",
     "the remote end hung up unexpectedly", "early eof", "rpc failed",
 )
+# Outages on this network have been observed lasting 60s+ at a stretch; a
+# fast-failing DNS error costs no time on its own, so the retry COUNT (with
+# an actual sleep between attempts, not a rapid-fire retry) is what has to
+# provide the margin.
+_SERVER_GIT_RETRY_LIMIT = 6
+_SERVER_GIT_RETRY_DELAY_SECONDS = 8
 
 
 def _fetch_branch_file_text(branch: str, path: str) -> str:
@@ -447,20 +456,23 @@ def _fetch_branch_file_text(branch: str, path: str) -> str:
     if not _RTL_PATH_RE.match(path):
         raise HTTPException(400, f"invalid rtl path format: {path!r}")
 
-    for attempt in range(3):
+    last_attempt = _SERVER_GIT_RETRY_LIMIT - 1
+    for attempt in range(_SERVER_GIT_RETRY_LIMIT):
         try:
             subprocess.run(["git", "fetch", "origin", branch], cwd=str(_REPO_ROOT),
                             capture_output=True, text=True, timeout=30)
             result = subprocess.run(["git", "show", f"origin/{branch}:{path}"], cwd=str(_REPO_ROOT),
                                      capture_output=True, text=True, timeout=30)
         except subprocess.TimeoutExpired:
-            if attempt < 2:
+            if attempt < last_attempt:
+                time.sleep(_SERVER_GIT_RETRY_DELAY_SECONDS)
                 continue
             raise HTTPException(504, f"timed out fetching {path} from origin/{branch}")
         if result.returncode == 0:
             return result.stdout
         stderr_lower = result.stderr.lower()
-        if attempt < 2 and any(m in stderr_lower for m in _TRANSIENT_GIT_ERROR_MARKERS):
+        if attempt < last_attempt and any(m in stderr_lower for m in _TRANSIENT_GIT_ERROR_MARKERS):
+            time.sleep(_SERVER_GIT_RETRY_DELAY_SECONDS)
             continue
         raise HTTPException(404, f"{path} not found on origin/{branch}")
     raise HTTPException(404, f"{path} not found on origin/{branch}")
@@ -481,6 +493,44 @@ def download_branch_file(branch: str, path: str) -> PlainTextResponse:
     filename = path.rsplit("/", 1)[-1]
     return PlainTextResponse(
         content, headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
+
+
+@app.get("/api/export/{chip_id}")
+def export_chip(chip_id: str, branch: str) -> Response:
+    """Zips up everything for one chip -- the RTL, its extra testbench if
+    Testbencher produced one, and the human-owned golden spec -- into a
+    clearly-laid-out folder so a single download gets you the whole project,
+    not one file at a time."""
+    if not _CHIP_ID_RE.match(chip_id):
+        raise HTTPException(400, f"invalid chip id: {chip_id!r}")
+    if not _BRANCH_RE.match(branch):
+        raise HTTPException(400, f"invalid branch format: {branch!r}")
+
+    # Main RTL is required -- let a missing/unreachable file 404 for real.
+    files = {f"{chip_id}/rtl/{chip_id}.v": _fetch_branch_file_text(branch, f"rtl/{chip_id}.v")}
+
+    # Everything else is best-effort: absent just means that stage didn't
+    # run (e.g. Testbencher was skipped), not that the export is broken.
+    for rel_path in (f"rtl/{chip_id}_tb_extra.v",):
+        try:
+            files[f"{chip_id}/{rel_path}"] = _fetch_branch_file_text(branch, rel_path)
+        except HTTPException:
+            pass
+
+    spec_path = _REPO_ROOT / "spec" / "chips" / f"{chip_id}.py"
+    if spec_path.exists():
+        files[f"{chip_id}/spec/{chip_id}.py"] = spec_path.read_text()
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for arcname, content in files.items():
+            zf.writestr(arcname, content)
+
+    return Response(
+        buf.getvalue(),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{chip_id}.zip"'},
     )
 
 

@@ -27,10 +27,15 @@ POLL_MAX_DELAY_SECONDS = 10
 POLL_BACKOFF_FACTOR = 1.4
 
 # A single poll hitting a transient network blip shouldn't abandon tracking
-# of a session that's likely still running fine on Devin's side -- only a
-# run of consecutive failures means we're really unable to reach the API.
-POLL_TRANSIENT_RETRY_LIMIT = 5
-POLL_TRANSIENT_RETRY_DELAY_SECONDS = 5
+# of a session that's likely still running fine on Devin's side -- only
+# sustained unreachability means we're really unable to reach the API.
+# Budgeted by TIME, not a fixed retry count: this environment has been
+# observed going unreachable for 60s+ at a stretch (a git ls-remote once
+# took 36s, DNS has failed outright for over a minute), so a handful of
+# quick retries isn't enough margin -- 3 minutes of backoff is.
+POLL_TRANSIENT_RETRY_BUDGET_SECONDS = 180
+POLL_TRANSIENT_RETRY_INITIAL_DELAY_SECONDS = 5
+POLL_TRANSIENT_RETRY_MAX_DELAY_SECONDS = 20
 
 # The real API's status_enum values are broader than the brief's shorthand
 # (running | blocked | stopped) -- observed in practice: "working" while a
@@ -137,19 +142,22 @@ def get_session(session_id: str) -> SessionState:
 
 
 def _get_session_resilient(session_id: str) -> SessionState:
-    """Like get_session, but absorbs a burst of transient network failures
-    instead of letting the first one abandon a session that may well still
-    be running (or already finished) on Devin's side."""
-    last_error: DevinAPIUnreachable | None = None
-    for attempt in range(POLL_TRANSIENT_RETRY_LIMIT):
+    """Like get_session, but absorbs sustained transient network failures
+    instead of letting the first one (or first few) abandon a session that
+    may well still be running (or already finished) on Devin's side. Backs
+    off exponentially up to POLL_TRANSIENT_RETRY_BUDGET_SECONDS of total
+    wall-clock, not a fixed attempt count -- see that constant for why."""
+    start = time.monotonic()
+    delay = POLL_TRANSIENT_RETRY_INITIAL_DELAY_SECONDS
+    while True:
         try:
             return get_session(session_id)
-        except DevinAPIUnreachable as e:
-            last_error = e
-            if attempt < POLL_TRANSIENT_RETRY_LIMIT - 1:
-                time.sleep(POLL_TRANSIENT_RETRY_DELAY_SECONDS)
-    assert last_error is not None
-    raise last_error
+        except DevinAPIUnreachable:
+            elapsed = time.monotonic() - start
+            if elapsed >= POLL_TRANSIENT_RETRY_BUDGET_SECONDS:
+                raise
+            time.sleep(min(delay, POLL_TRANSIENT_RETRY_BUDGET_SECONDS - elapsed))
+            delay = min(delay * 1.5, POLL_TRANSIENT_RETRY_MAX_DELAY_SECONDS)
 
 
 def poll_until_done(
