@@ -1,0 +1,22 @@
+# secrets
+.env
+.env.*
+
+# python
+__pycache__/
+*.pyc
+.venv/
+
+# node / vite
+node_modules/
+ui/dist/
+ui/.vite/
+
+# EDA sim / synth artifacts (regenerable by the harness)
+*.vcd
+*.vvp
+*.out
+*_synth_*.txt
+
+# editor / OS
+.DS_Store
