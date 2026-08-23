@@ -1,0 +1,32 @@
+ok it works, is SN5446A legacy at all
+
+---
+
+what is the point of this a
+b
+c
+d
+e
+f
+g
+RBO_n 
+
+stuff? how does it change from chip to chip. can't we show data? should we show data?
+
+---
+
+can you show data somehow in this diagram
+
+---
+
+drafting failed: CalledProcessError(1, ['git', 'commit', '-m', 'Add uploaded datasheet for sn5446a'])
+
+---
+
+Devin declined to draft this rather than invent a golden model it couldn't verify against the datasheet. Its full reasoning:
+
+drafting failed: CalledProcessError(1, ['git', 'commit', '-m', 'Add uploaded datasheet for sn5446a'])
+
+---
+
+drafting failed: CalledProcessError(1, ['git', 'push', 'origin', 'drafts/sn5446a'])
