@@ -15,8 +15,10 @@ Ports (pinout, page 1, J/N package top view; pin numbers in parentheses):
            RBI_n (5)                   - ripple-blanking input, active LOW
            BI_n (4)                    - blanking input, active LOW (see note on
                                          BI/RBO modeling below)
-  Outputs: a, b, c, d, e, f, g         - segment drivers, active LOW
+  Outputs: a (13), b (12), c (11), d (10), e (9), f (15), g (14)
+                                       - segment drivers, active LOW
            RBO_n (4)                   - ripple-blanking output, active LOW
+  (Segment lettering per the "SEGMENT IDENTIFICATION" figure, page 3.)
 
 Output polarity (page 2 driver-output table: SN5446A "ACTIVE LEVEL = low",
 "open-collector"; page 3 description: "The '46A, '47A, and 'LS47 feature
