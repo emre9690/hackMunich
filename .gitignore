@@ -21,5 +21,8 @@ ui/.vite/
 # AI-drafted, human-not-yet-reviewed chip specs -- never trusted, never committed
 drafts/
 
+# cached Devin Playbook id (env/org-specific, recreated automatically if missing)
+orchestrator/.coder_playbook_id
+
 # editor / OS
 .DS_Store

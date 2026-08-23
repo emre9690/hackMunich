@@ -45,6 +45,7 @@ from __future__ import annotations
 import ast
 import importlib.util
 import pathlib
+import random
 import subprocess
 import sys
 import tempfile
@@ -201,30 +202,132 @@ def _run_git(*args: str, cwd: pathlib.Path, check: bool = True) -> subprocess.Co
     return result
 
 
+# Concurrent writers to the same chip_id's branch (two browser tabs, or a
+# retry overlapping a still-in-flight prior attempt) can make git fail in
+# several genuinely different ways depending on exact thread timing --
+# confirmed by reproducing it directly: a rejected push, "cannot force
+# update the branch ... checked out at", and "cannot lock ref ...
+# reference already exists" have all been observed from the SAME race.
+# git's vocabulary for "someone else is touching this ref right now" is
+# too wide to enumerate reliably by string-matching, so this retries on
+# ANY failure in the loop below rather than trying to recognize specific
+# wording -- safe because the whole operation is idempotent (same input
+# bytes always produce the same result), so a blind retry either recovers
+# from a transient race or, if the failure is genuinely permanent, just
+# reproduces the same real error a couple of attempts later instead of
+# hiding it.
+
+
 def _commit_datasheet_to_branch(branch: str, chip_id: str, doc_filename: str, doc_bytes: bytes) -> str:
     """Commit the raw uploaded file to `branch` via a temporary git worktree
     -- never checks out `branch` in the shared _REPO_ROOT working tree.
-    Returns the committed path, relative to the repo root."""
-    suffix = pathlib.Path(doc_filename).suffix or ".txt"
+    Returns the committed path, relative to the repo root.
+
+    Retries the whole fetch -> commit -> push sequence a few times if the
+    push is rejected because someone else (a concurrent upload for the
+    same chip_id, e.g. a second browser tab, or a retried request) advanced
+    the branch in between -- re-fetching picks up whatever they pushed, and
+    since the content here is deterministic, the retry's commit usually
+    lands on "nothing to commit" (already handled) and the push is then a
+    clean fast-forward."""
+    # Lowercased deliberately: macOS's filesystem is case-INSENSITIVE while
+    # git's index is case-SENSITIVE, so re-uploading the same chip_id with a
+    # differently-cased extension (.pdf vs .PDF) would silently overwrite
+    # the same on-disk file while git treats it as two unrelated paths --
+    # `git add -f` on the new-cased path then stages nothing (or the wrong
+    # thing) while the actually-changed existing-cased path sits unstaged.
+    # A stable, deterministic path avoids that class of bug entirely.
+    suffix = (pathlib.Path(doc_filename).suffix or ".txt").lower()
     rel_path = f"drafts/{chip_id}_datasheet{suffix}"
 
-    worktree_dir = pathlib.Path(tempfile.mkdtemp(prefix=f"draft_worktree_{chip_id}_"))
-    try:
-        _run_git("worktree", "add", str(worktree_dir), branch, cwd=_REPO_ROOT)
-        target = worktree_dir / rel_path
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(doc_bytes)
-        # -f: /drafts/ is gitignored (so local unreviewed drafts never land
-        # on main by accident) -- but that rule is checked out on this
-        # branch too, and here we're deliberately committing to a drafts/*
-        # branch, so it needs to be forced past the ignore.
-        _run_git("add", "-f", rel_path, cwd=worktree_dir)
-        _run_git("commit", "-m", f"Add uploaded datasheet for {chip_id}", cwd=worktree_dir)
-        _run_git("push", "origin", branch, cwd=worktree_dir)
-    finally:
-        _run_git("worktree", "remove", "--force", str(worktree_dir), cwd=_REPO_ROOT, check=False)
+    last_error: Exception | None = None
+    _max_attempts = 5
+    for attempt in range(_max_attempts):
+        worktree_dir = pathlib.Path(tempfile.mkdtemp(prefix=f"draft_worktree_{chip_id}_"))
+        try:
+            try:
+                # `git fetch` alone only updates the origin/* remote-
+                # tracking ref, never the local branch -- so if anything
+                # has landed on this branch on origin since the local ref
+                # was last touched (a prior draft commit, or another
+                # concurrent upload), the local ref is stale and `worktree
+                # add` below would silently build on outdated state.
+                # Force the local ref to match origin's tip before
+                # checking it out -- this branch is only ever written by
+                # this exact flow, so it never has local-only commits
+                # that force-updating could lose.
+                _run_git("fetch", "origin", branch, cwd=_REPO_ROOT)
+                _run_git("branch", "-f", branch, "FETCH_HEAD", cwd=_REPO_ROOT)
+                _run_git("worktree", "add", str(worktree_dir), branch, cwd=_REPO_ROOT)
 
-    return rel_path
+                # A previous upload for this chip_id may have committed
+                # the datasheet under a differently-cased filename (e.g.
+                # .PDF before this function started normalizing to .pdf).
+                # On macOS's case-INSENSITIVE filesystem that old tracked
+                # path aliases the SAME on-disk file as the new one --
+                # writing to `rel_path` would silently overwrite it while
+                # git's case-SENSITIVE index still points at the old
+                # name, leaving the two permanently out of sync no matter
+                # how the new path is added. Explicitly drop any
+                # differently-cased existing entry first so there's only
+                # ever one, correctly-cased, tracked file.
+                existing = _run_git("ls-files", "drafts/", cwd=worktree_dir).stdout.splitlines()
+                for f in existing:
+                    if f != rel_path and f.lower() == rel_path.lower():
+                        _run_git("rm", "-f", f, cwd=worktree_dir)
+
+                target = worktree_dir / rel_path
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(doc_bytes)
+                # -f: /drafts/ is gitignored (so local unreviewed drafts
+                # never land on main by accident) -- but that rule is
+                # checked out on this branch too, and here we're
+                # deliberately committing to a drafts/* branch, so it
+                # needs to be forced past the ignore.
+                _run_git("add", "-f", rel_path, cwd=worktree_dir)
+                # check=False: re-submitting the identical datasheet for
+                # a chip_id whose branch already has it (e.g. Reset
+                # cleared the local registry but branches persist on
+                # origin -- Reset was never meant to rewrite git history)
+                # makes this commit legitimately empty. git exits 1 for
+                # "nothing to commit," which isn't a real failure here --
+                # the file's already on the branch, which is all this
+                # step needs to guarantee.
+                commit = _run_git("commit", "-m", f"Add uploaded datasheet for {chip_id}",
+                                   cwd=worktree_dir, check=False)
+                # Two different git messages mean the same "nothing new"
+                # thing depending on whether other files happen to be
+                # dirty too ("no changes added to commit") or not
+                # ("nothing to commit, working tree clean") -- this is a
+                # fresh worktree so the latter is expected, but check both.
+                if commit.returncode != 0 and not any(
+                    m in commit.stdout.lower() for m in ("nothing to commit", "no changes added to commit")
+                ):
+                    raise RuntimeError(
+                        f"git commit failed for {chip_id!r}: {commit.stderr or commit.stdout}"
+                    )
+
+                push = _run_git("push", "origin", branch, cwd=worktree_dir, check=False)
+                if push.returncode == 0:
+                    return rel_path
+                raise RuntimeError(f"git push rejected for {chip_id!r}: {push.stderr}")
+            except (subprocess.CalledProcessError, RuntimeError) as e:
+                if attempt < _max_attempts - 1:
+                    last_error = e
+                    # Random jitter, not a fixed delay -- two threads that
+                    # collided at the same instant and both sleep the same
+                    # fixed duration tend to just collide again on the next
+                    # attempt (observed directly: a fixed 2s delay let two
+                    # racing uploads stay in lockstep for all 3 attempts).
+                    # Randomizing breaks that resonance.
+                    time.sleep(random.uniform(1.0, 3.5))
+                    continue
+                raise
+        finally:
+            _run_git("worktree", "remove", "--force", str(worktree_dir), cwd=_REPO_ROOT, check=False)
+
+    assert last_error is not None
+    raise last_error
 
 
 def validate_draft_source(source: str) -> None:

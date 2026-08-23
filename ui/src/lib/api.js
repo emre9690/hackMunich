@@ -49,3 +49,11 @@ export async function fetchChipPorts(chipId) {
   if (!res.ok) throw new Error(`fetch chip ports failed: ${res.status}`);
   return res.json();
 }
+
+export async function fetchChipSampleVectors(chipId, count = 8) {
+  const res = await fetch(
+    apiUrl(`/api/chips/${encodeURIComponent(chipId)}/sample-vectors?count=${count}`)
+  );
+  if (!res.ok) throw new Error(`fetch chip sample vectors failed: ${res.status}`);
+  return res.json();
+}

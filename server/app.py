@@ -110,6 +110,37 @@ def chip_ports(chip_id: str) -> dict:
     }
 
 
+@app.get("/api/chips/{chip_id}/sample-vectors")
+def chip_sample_vectors(chip_id: str, count: int = 8) -> dict:
+    """A handful of real (input, output) rows straight from the golden
+    model -- for the schematic panel to cycle pin values through, so the
+    diagram shows the chip actually behaving instead of just labeled pins.
+    Evenly spaced across the full input space (not just the first N), so
+    even a narrow first slice of the address/select bits doesn't make every
+    sample look the same."""
+    if chip_id not in available_chips():
+        raise HTTPException(404, f"unknown chip {chip_id!r}")
+    spec = spec_registry.load_chip(chip_id)
+
+    total = spec.vector_count
+    count = max(1, min(count, total))
+    if count == 1:
+        indices = [0]
+    else:
+        indices = sorted({round(i * (total - 1) / (count - 1)) for i in range(count)})
+
+    n = spec.input_bits
+    in_names = [p.name for p in spec.inputs]
+    rows = []
+    for idx in indices:
+        bits = [(idx >> (n - 1 - i)) & 1 for i in range(n)]
+        in_map = dict(zip(in_names, bits))
+        out_map = spec.golden_fn(in_map)
+        rows.append({**in_map, **out_map})
+
+    return {"chip_id": chip_id, "rows": rows}
+
+
 @app.get("/api/runs")
 def list_runs() -> dict:
     return {"runs": _runs}
@@ -180,8 +211,16 @@ def _commit_and_push_chip_files(chip_id: str) -> None:
             ["git", "commit", "-m", f"Register {chip_id}: approved from datasheet draft"],
             cwd=str(_REPO_ROOT), capture_output=True, text=True, timeout=30,
         )
-        # A re-approval with identical content is not a failure.
-        if commit.returncode != 0 and "nothing to commit" not in commit.stdout.lower():
+        # A re-approval with identical content is not a failure. This runs
+        # in the shared main working tree (never an isolated worktree), so
+        # if OTHER unrelated files happen to be dirty at the same time (a
+        # human actively editing the repo, e.g.), git reports an empty
+        # commit as "no changes added to commit" instead of "nothing to
+        # commit, working tree clean" -- both mean the same thing here.
+        _EMPTY_COMMIT_MARKERS = ("nothing to commit", "no changes added to commit")
+        if commit.returncode != 0 and not any(
+            m in commit.stdout.lower() for m in _EMPTY_COMMIT_MARKERS
+        ):
             raise RuntimeError(f"git commit failed for {chip_id!r}: {commit.stderr or commit.stdout}")
 
         push = subprocess.run(["git", "push", "origin", "main"], cwd=str(_REPO_ROOT),

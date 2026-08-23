@@ -16,6 +16,7 @@ from __future__ import annotations
 import pathlib
 import subprocess
 import sys
+import threading
 import time
 
 _REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -138,6 +139,7 @@ def create_and_poll(
     timeout_override_seconds: float | None = None,
     resume_handle: "devin_client.SessionHandle | None" = None,
     resume_message: str | None = None,
+    playbook_id: str | None = None,
 ) -> tuple[devin_client.SessionState | None, devin_client.SessionHandle]:
     """Create a Devin session and poll it to completion.
 
@@ -173,8 +175,13 @@ def create_and_poll(
         if handle is None:
             emit(chip=chip_id, branch=branch, agent=agent, stage=stage, attempt=attempt,
                  status="running", detail="creating Devin session")
+            # Tagged uniformly for every stage so Devin's own dashboard stays
+            # a useful secondary view (filter by chip, by agent, by stage)
+            # even though the UI never depends on it for anything.
             handle = devin_client.create_session(
                 prompt, title=title, structured_output_schema=structured_output_schema,
+                playbook_id=playbook_id,
+                tags=[f"chip:{chip_id}", f"agent:{agent}", f"stage:{stage}"],
             )
         emit(chip=chip_id, branch=branch, agent=agent, stage=stage, attempt=attempt,
              status="running", session_id=handle.session_id, session_url=handle.url,
@@ -243,6 +250,90 @@ def _verify_branch_rtl(chip_id: str, branch: str, run_id: int, agent: str, attem
 # Coder-Devin: implement the spec, with a capped fail->fix loop
 # ---------------------------------------------------------------------------
 
+# Everything that does NOT vary by chip -- role framing, the shallow-clone
+# warning, and the do-not-self-verify/no-PR/structured-output rules -- lives
+# in a Devin Playbook instead of being re-pasted into every prompt. The
+# per-session prompt then carries only what actually changes per attempt
+# (chip_id, branch, ports, behavior, golden model, failing_detail). Devin
+# loads the playbook body as part of session context automatically once
+# `playbook_id` is set on session creation.
+_CODER_PLAYBOOK_TITLE = "reFORGE Coder Agent"
+_CODER_PLAYBOOK_MACRO = "!reforge-coder"
+_CODER_PLAYBOOK_BODY = """\
+You are the Coder agent in the reFORGE pipeline: given a chip id, branch,
+port list, and a human-authored golden-model behavior spec (all supplied in
+the session prompt), you implement a single synthesizable Verilog (RTL)
+module that exactly reproduces that behavior.
+
+Repository: GitHub repo `{repo}` (already connected to your Devin org via
+the GitHub App; do not use any other repo). This repo's git history is
+large (~100MB across many unrelated experimental branches) even though the
+actual source is tiny -- do NOT run a plain `git clone`, it will pull all
+of that. Instead clone ONLY the branch named in the prompt, shallowly:
+    git clone --depth 1 --branch <branch> --single-branch \\
+      https://github.com/{repo}.git .
+That branch already exists on origin -- do NOT create a new branch.
+
+Rules that apply to every chip/branch you're given:
+- Write the RTL to exactly the file path the prompt names (rtl/<chip_id>.v),
+  implementing exactly the module name and port list given -- no other
+  ports, no renamed ports.
+- The golden model pasted into the prompt (also present in this repo under
+  /spec/, human-owned ground truth) is reference only -- you must NEVER
+  modify anything under /spec/.
+- Commit and push your RTL to the given branch with a clear message. Do not
+  create a pull request. Do not modify any file outside the target RTL path.
+- An external harness (not you) is the sole source of pass/fail truth --
+  after you push, it compiles and exhaustively simulates your RTL against
+  the golden model. Implement your best-effort correct design and push it;
+  you do NOT need to convince yourself it is correct via your own testing --
+  do NOT install iverilog or any other simulator, and do NOT self-verify.
+  That work is redundant with the external harness and only spends
+  time/ACUs you don't need to spend; go straight from writing the file to
+  committing and pushing.
+- End your FINAL message (there is no separate structured-output tool or
+  action -- it is extracted from the text of your last message) with
+  exactly the JSON object the prompt asks for.
+"""
+
+_coder_playbook_lock = threading.Lock()
+_coder_playbook_id: str | None = None
+# Playbook creation has no idempotency key (unlike sessions) -- calling it
+# twice makes two playbooks. Cache the id in a gitignored file next to this
+# module so repeated server restarts reuse the same playbook instead of
+# accumulating duplicates in the org.
+_CODER_PLAYBOOK_CACHE_PATH = pathlib.Path(__file__).with_name(".coder_playbook_id")
+
+
+def _get_coder_playbook_id() -> str | None:
+    """Best-effort: returns a cached/created Playbook id, or None if the
+    Playbooks API is unavailable/erroring. Never raises -- a missing
+    playbook just means the Coder prompt falls back to being fully
+    self-contained (the original behavior), never a hard failure."""
+    global _coder_playbook_id
+    if _coder_playbook_id:
+        return _coder_playbook_id
+    with _coder_playbook_lock:
+        if _coder_playbook_id:
+            return _coder_playbook_id
+        if _CODER_PLAYBOOK_CACHE_PATH.exists():
+            cached = _CODER_PLAYBOOK_CACHE_PATH.read_text().strip()
+            if cached:
+                _coder_playbook_id = cached
+                return _coder_playbook_id
+        try:
+            pid = devin_client.create_playbook(
+                _CODER_PLAYBOOK_TITLE,
+                _CODER_PLAYBOOK_BODY.format(repo=GITHUB_REPO),
+                macro=_CODER_PLAYBOOK_MACRO,
+            )
+        except devin_client.DevinAPIError:
+            return None
+        _CODER_PLAYBOOK_CACHE_PATH.write_text(pid)
+        _coder_playbook_id = pid
+        return pid
+
+
 def _coder_prompt(spec: ChipSpec, chip_id: str, branch: str, failing_detail: str | None) -> str:
     in_ports = "\n".join(f"  input  {p.name};  // 1 bit" for p in spec.inputs)
     out_ports = "\n".join(f"  output {p.name};  // 1 bit" for p in spec.outputs)
@@ -256,49 +347,23 @@ def _coder_prompt(spec: ChipSpec, chip_id: str, branch: str, failing_detail: str
     golden_model_source = golden_model_path.read_text() if golden_model_path.exists() else None
 
     prompt = f"""\
-You are implementing a Verilog (RTL) design that must exactly reproduce the
-behavior of a discontinued digital logic chip, the {chip_id}.
+Chip: {chip_id} (module `{spec.module_name}`)
+Branch: `{branch}`
+Target file: rtl/{chip_id}.v
 
-Repository: GitHub repo `{GITHUB_REPO}` (already connected to your Devin
-org via the GitHub App; do not use any other repo). This repo's git
-history is large (~100MB across many unrelated experimental branches) even
-though the actual source is tiny -- do NOT run a plain `git clone`, it
-will pull all of that. Instead clone ONLY this branch, shallowly:
-    git clone --depth 1 --branch {branch} --single-branch \\
-      https://github.com/{GITHUB_REPO}.git .
-Branch `{branch}` already exists on origin -- do NOT create a new branch.
-
-Task:
-1. Confirm you're on branch `{branch}` (the shallow clone above already
-   checks it out)
-2. Write a single synthesizable Verilog module at `rtl/{chip_id}.v`
-   implementing module `{spec.module_name}` with EXACTLY these ports (all
-   1-bit signals, no other ports):
+Ports (all 1-bit, exactly these, no others):
 {in_ports}
 {out_ports}
-3. Behavior spec (read carefully -- there is a specific active-high vs.
-   active-low polarity per signal and a multi-term enable/select condition):
-{behavior}
-   The full human-authored golden model, pasted below so you don't need to
-   fetch anything, is also on this repo at spec/chips/{chip_id}.py -- read
-   it there only if you want extra context; you must NEVER modify anything
-   under /spec/ (that is the ground truth, human-owned only).
-{"--- spec/chips/" + chip_id + ".py ---" + chr(10) + golden_model_source + chr(10) + "--- end ---" if golden_model_source else "(not found locally when this prompt was built -- read it from the repo path above)"}
-4. Commit `rtl/{chip_id}.v` on branch `{branch}` with a clear message and
-   push it to origin.
-5. End your FINAL message (there is no separate structured-output tool or
-   action -- it is extracted from the text of your last message) with
-   exactly this JSON:
-   {{"commit_sha": "<sha of your commit>", "file": "rtl/{chip_id}.v"}}
 
-Do not create a pull request. Do not modify any file outside rtl/{chip_id}.v.
-An external harness (not you) is the sole source of pass/fail truth -- after
-you push, it will compile and exhaustively simulate your RTL against the
-golden model. Implement your best-effort correct design and push it; you do
-NOT need to convince yourself it is correct via your own testing -- do NOT
-install iverilog or any other simulator, and do NOT self-verify. That work
-is redundant with the external harness and only spends time/ACUs you don't
-need to spend; go straight from writing the file to committing and pushing.
+Behavior spec (read carefully -- there is a specific active-high vs.
+active-low polarity per signal and a multi-term enable/select condition):
+{behavior}
+The full human-authored golden model, pasted below so you don't need to
+fetch anything, is also on this repo at spec/chips/{chip_id}.py:
+{"--- spec/chips/" + chip_id + ".py ---" + chr(10) + golden_model_source + chr(10) + "--- end ---" if golden_model_source else "(not found locally when this prompt was built -- read it from the repo path instead)"}
+
+End your FINAL message with exactly this JSON:
+{{"commit_sha": "<sha of your commit>", "file": "rtl/{chip_id}.v"}}
 """
     if failing_detail:
         prompt += f"""
@@ -355,6 +420,7 @@ def run_coder_loop(
     # whenever a resume is attempted -- one resume attempt per prior
     # session, never retried against the same handle twice.
     resume_handle: devin_client.SessionHandle | None = None
+    playbook_id = _get_coder_playbook_id()
 
     for attempt in range(1, MAX_ATTEMPTS_PER_CHIP + 1):
         if deadline is not None and time.monotonic() >= deadline:
@@ -379,6 +445,7 @@ def run_coder_loop(
             prompt=prompt, title=f"{chip_id} coder attempt {attempt}", budget=budget,
             timeout_override_seconds=per_attempt_timeout,
             resume_handle=resume_handle, resume_message=resume_message,
+            playbook_id=playbook_id,
         )
         resume_handle = None
         if state is None:

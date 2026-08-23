@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
-import { fetchChipPorts } from "../lib/api";
+import { fetchChipPorts, fetchChipSampleVectors } from "../lib/api";
 
 const PIN_GAP = 26;
 const BODY_PAD_Y = 20;
 const BODY_WIDTH = 150;
 const STUB_LEN = 34;
 const LABEL_MAX = 64;
+const TABLE_ROW_COUNT = 8;
 
 // "drafter" events fire for a chip long before it's ever approved/
 // registered (the whole datasheet-drafting + human-review window) -- if the
@@ -40,16 +41,25 @@ export default function SchematicPanel({ events }) {
   const chipId = currentChip(events);
   const [ports, setPorts] = useState(null);
   const [error, setError] = useState(null);
+  // Real (input, output) rows from the golden model -- a static reference
+  // table, not an animation. Best-effort: if this fails to load, the
+  // pinout diagram still renders fine without it.
+  const [sampleRows, setSampleRows] = useState(null);
 
   useEffect(() => {
     if (!chipId) {
       setPorts(null);
+      setSampleRows(null);
       return;
     }
     setError(null);
+    setSampleRows(null);
     fetchChipPorts(chipId)
       .then(setPorts)
       .catch((e) => setError(String(e)));
+    fetchChipSampleVectors(chipId, TABLE_ROW_COUNT)
+      .then((d) => setSampleRows(d.rows))
+      .catch(() => setSampleRows(null));
   }, [chipId]);
 
   if (!chipId) {
@@ -83,6 +93,14 @@ export default function SchematicPanel({ events }) {
   const centerY = bodyHeight / 2;
 
   const pinY = (i, count) => bodyY + BODY_PAD_Y + (bodyHeight - BODY_PAD_Y * 2) * (count === 1 ? 0.5 : i / (count - 1));
+  const columns = [...ports.inputs, ...ports.outputs];
+
+  // Module names vary a lot in length (decoder_74138 vs
+  // BCD_TO_7SEG_SN5446A) -- scale the font down for longer names instead
+  // of a single fixed size, so it always fits inside the fixed-width chip
+  // body rather than overflowing past its edges.
+  const partName = ports.module_name || chipId;
+  const partFontSize = Math.min(13, Math.max(7, (BODY_WIDTH - 16) / (partName.length * 0.62)));
 
   return (
     <div className={`schematic-panel schematic-${status}`}>
@@ -95,9 +113,7 @@ export default function SchematicPanel({ events }) {
         {/* Trace lines only span the actual stub (fixed STUB_LEN), never the
             label region -- labels sit in the open space past the stub with
             a clean gap, so a long name (e.g. RBO_n) can never end up
-            visually overlapping the dashed line the way it did when the
-            line ran the full width behind wherever the text happened to
-            land. */}
+            visually overlapping the dashed line. */}
         {ports.inputs.map((name, i) => {
           const y = pinY(i, ports.inputs.length);
           const stubStart = bodyX - STUB_LEN;
@@ -139,13 +155,45 @@ export default function SchematicPanel({ events }) {
           d={`M ${bodyX + BODY_WIDTH / 2 - 9} ${bodyY} a 9 9 0 0 0 18 0`}
           className="schematic-notch"
         />
-        <text x={bodyX + BODY_WIDTH / 2} y={centerY - 2} textAnchor="middle" className="schematic-part">
-          {ports.module_name || chipId}
+        <text
+          x={bodyX + BODY_WIDTH / 2}
+          y={centerY - 2}
+          textAnchor="middle"
+          className="schematic-part"
+          style={{ fontSize: partFontSize }}
+        >
+          {partName}
         </text>
         <text x={bodyX + BODY_WIDTH / 2} y={centerY + 14} textAnchor="middle" className="schematic-part-sub">
           {status === "verified" ? "VERIFIED" : status === "failed" ? "FAILING" : status === "running" ? "SYNTHESIZING…" : "IDLE"}
         </text>
       </svg>
+
+      {sampleRows && (
+        <div className="schematic-table-wrap">
+          <div className="schematic-table-title">Truth table (sample)</div>
+          <div className="draft-table-wrap">
+            <table className="draft-table">
+              <thead>
+                <tr>
+                  {columns.map((c) => (
+                    <th key={c}>{c}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {sampleRows.map((row, i) => (
+                  <tr key={i}>
+                    {columns.map((c) => (
+                      <td key={c}>{row[c]}</td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -121,14 +121,34 @@ def create_session(
     title: Optional[str] = None,
     idempotent: bool = False,
     structured_output_schema: Optional[dict] = None,
+    playbook_id: Optional[str] = None,
+    tags: Optional[list[str]] = None,
 ) -> SessionHandle:
     body: dict[str, Any] = {"prompt": prompt, "idempotent": idempotent}
     if title:
         body["title"] = title
     if structured_output_schema:
         body["structured_output_schema"] = structured_output_schema
+    if playbook_id:
+        body["playbook_id"] = playbook_id
+    if tags:
+        body["tags"] = tags
     resp = _request("POST", "/sessions", json_body=body)
     return SessionHandle(session_id=resp["session_id"], url=resp.get("url", ""))
+
+
+def create_playbook(title: str, body: str, *, macro: Optional[str] = None) -> str:
+    """Creates a reusable team Playbook, returning its playbook_id.
+
+    Playbooks are per-org, not per-session -- there is no delete/list-by-
+    title call here, so callers that create one at runtime (see pipeline.py)
+    must cache the returned id themselves rather than calling this on every
+    session, or they'll accumulate duplicate playbooks in the org."""
+    payload: dict[str, Any] = {"title": title, "body": body}
+    if macro:
+        payload["macro"] = macro
+    resp = _request("POST", "/playbooks", json_body=payload)
+    return resp["playbook_id"]
 
 
 def get_session(session_id: str) -> SessionState:
