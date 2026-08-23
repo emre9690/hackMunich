@@ -1,5 +1,7 @@
 // SN5446A BCD-to-seven-segment decoder/driver.
-// Segment outputs are active low (segment ON -> 0); RBO_n is active low.
+// Segment outputs are active low (0 = segment ON). BI_n overrides all other
+// inputs; LT_n turns all segments on when BI_n is high; RBI_n blanks a zero
+// code. RBO_n mirrors the wire-AND BI/RBO node: low when blanked.
 module bcd_to_7seg_sn5446a (
     input  A,
     input  B,
@@ -20,9 +22,14 @@ module bcd_to_7seg_sn5446a (
 
     wire [3:0] code = {D, C, B, A};
 
-    reg [6:0] seg_on;  // {a,b,c,d,e,f,g}, 1 = segment ON
+    wire blank = ~BI_n | (LT_n & ~RBI_n & (code == 4'd0));
+    wire lamp_test = BI_n & ~LT_n;
 
-    always @(*) begin
+    assign RBO_n = ~blank;
+
+    // Segments ON (active-low pattern computed as {a,b,c,d,e,f,g} ON bits).
+    reg [6:0] seg_on;
+    always @* begin
         case (code)
             4'd0:  seg_on = 7'b1111110;
             4'd1:  seg_on = 7'b0110000;
@@ -40,20 +47,12 @@ module bcd_to_7seg_sn5446a (
             4'd13: seg_on = 7'b1001011;
             4'd14: seg_on = 7'b0001111;
             4'd15: seg_on = 7'b0000000;
-            default: seg_on = 7'b0000000;
         endcase
     end
 
-    wire ripple_blank = ~RBI_n & (code == 4'd0);
-    wire blank        = ~BI_n | (LT_n & ripple_blank);
-    wire lamp_test    = BI_n & ~LT_n;
+    wire [6:0] seg_on_eff = blank ? 7'b0000000 :
+                            lamp_test ? 7'b1111111 : seg_on;
 
-    wire [6:0] seg_n = blank     ? 7'b1111111 :
-                       lamp_test ? 7'b0000000 :
-                                   ~seg_on;
-
-    assign {a, b, c, d, e, f, g} = seg_n;
-
-    assign RBO_n = BI_n & ~(LT_n & ripple_blank);
+    assign {a, b, c, d, e, f, g} = ~seg_on_eff;
 
 endmodule
