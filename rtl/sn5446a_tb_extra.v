@@ -1,13 +1,14 @@
 // Supplementary edge-case testbench for bcd_to_7seg_sn5446a.
 //
-// This is ADDITIONAL regression-safety documentation only. The exhaustive
-// 128-vector check against spec/chips/sn5446a.py remains the sole source of
-// pass/fail truth for this design; the cases below just document boundary
-// conditions and input-state transitions in an executable form.
+// This is NOT the verification source of truth: the design is already verified
+// exhaustively against the golden model in spec/chips/sn5446a.py by the external
+// harness. This testbench documents specific edge cases -- control-input
+// priority, the code==0 boundary of ripple blanking, the all-segments-off
+// decode of code 15 versus a real blank, and input transitions -- so that a
+// future regression in any of them fails loudly and readably.
 //
-// Run with Icarus Verilog:
-//   iverilog -o /tmp/sn5446a_tb_extra.vvp rtl/sn5446a.v rtl/sn5446a_tb_extra.v
-//   vvp /tmp/sn5446a_tb_extra.vvp
+// Segment outputs are active low: 0 = segment ON, 1 = segment OFF.
+// Expected patterns below are written as {a,b,c,d,e,f,g}.
 `timescale 1ns / 1ps
 
 module sn5446a_tb_extra;
@@ -15,8 +16,8 @@ module sn5446a_tb_extra;
     reg A, B, C, D, LT_n, RBI_n, BI_n;
     wire a, b, c, d, e, f, g, RBO_n;
 
-    integer checks = 0;
-    integer failures = 0;
+    integer pass_count = 0;
+    integer fail_count = 0;
 
     bcd_to_7seg_sn5446a dut (
         .A(A), .B(B), .C(C), .D(D),
@@ -25,125 +26,102 @@ module sn5446a_tb_extra;
         .RBO_n(RBO_n)
     );
 
-    // Observed segment bus, active low, ordered {a,b,c,d,e,f,g}.
-    wire [6:0] seg_n = {a, b, c, d, e, f, g};
+    wire [6:0] seg = {a, b, c, d, e, f, g};
 
     localparam [6:0] ALL_OFF = 7'b1111111;
     localparam [6:0] ALL_ON  = 7'b0000000;
+    localparam [6:0] DIG_0   = 7'b0000001;
+    localparam [6:0] DIG_1   = 7'b1001111;
+    localparam [6:0] DIG_5   = 7'b0100100;
+    localparam [6:0] DIG_8   = 7'b0000000;
+    localparam [6:0] DIG_9   = 7'b0001100;
+    localparam [6:0] CODE_10 = 7'b1110010;
+    localparam [6:0] CODE_15 = 7'b1111111;
 
-    task apply(input code_d, code_c, code_b, code_a,
-               input lt, rbi, bi);
+    // Drive one input vector and compare segments + RBO_n against expectation.
+    task check;
+        input [8*48-1:0] name;
+        input [3:0] code;
+        input lt_n_in, rbi_n_in, bi_n_in;
+        input [6:0] exp_seg;
+        input exp_rbo_n;
         begin
-            D = code_d; C = code_c; B = code_b; A = code_a;
-            LT_n = lt; RBI_n = rbi; BI_n = bi;
+            {D, C, B, A} = code;
+            LT_n  = lt_n_in;
+            RBI_n = rbi_n_in;
+            BI_n  = bi_n_in;
+            #5;
+            if (seg === exp_seg && RBO_n === exp_rbo_n) begin
+                pass_count = pass_count + 1;
+                $display("PASS  %0s | code=%0d LT_n=%b RBI_n=%b BI_n=%b -> seg=%b RBO_n=%b",
+                         name, code, lt_n_in, rbi_n_in, bi_n_in, seg, RBO_n);
+            end else begin
+                fail_count = fail_count + 1;
+                $display("FAIL  %0s | code=%0d LT_n=%b RBI_n=%b BI_n=%b -> seg=%b RBO_n=%b (expected seg=%b RBO_n=%b)",
+                         name, code, lt_n_in, rbi_n_in, bi_n_in, seg, RBO_n, exp_seg, exp_rbo_n);
+            end
             #5;
         end
     endtask
 
-    task check(input [511:0] name,
-               input [6:0] exp_seg_n,
-               input exp_rbo_n);
-        begin
-            checks = checks + 1;
-            if (seg_n === exp_seg_n && RBO_n === exp_rbo_n) begin
-                $display("PASS: %0s (seg_n=%b RBO_n=%b)", name, seg_n, RBO_n);
-            end else begin
-                failures = failures + 1;
-                $display("FAIL: %0s got seg_n=%b RBO_n=%b, expected seg_n=%b RBO_n=%b",
-                         name, seg_n, RBO_n, exp_seg_n, exp_rbo_n);
-            end
-        end
-    endtask
-
     initial begin
-        $display("=== sn5446a supplementary edge-case testbench ===");
+        $display("=== sn5446a_tb_extra: supplementary edge-case checks ===");
 
-        // --- Control-input priority boundaries ---------------------------
+        // --- Control-input priority ---------------------------------------
+        // BI_n dominates every other input, including lamp test.
+        check("BI_n overrides lamp test",            4'd8, 1'b0, 1'b1, 1'b0, ALL_OFF, 1'b0);
+        // BI_n dominates ripple blanking and a valid decode alike.
+        check("BI_n overrides ripple blank",         4'd0, 1'b1, 1'b0, 1'b0, ALL_OFF, 1'b0);
+        check("BI_n overrides valid decode",         4'd5, 1'b1, 1'b1, 1'b0, ALL_OFF, 1'b0);
+        // Lamp test outranks ripple blanking when the BI/RBO node is high.
+        check("lamp test outranks ripple blank",     4'd0, 1'b0, 1'b0, 1'b1, ALL_ON,  1'b1);
+        // Lamp test ignores the BCD code entirely.
+        check("lamp test ignores code 15",           4'd15, 1'b0, 1'b1, 1'b1, ALL_ON, 1'b1);
 
-        // BI_n dominates lamp test: both asserted -> blanked, not all-on.
-        apply(1, 0, 0, 1, 0, 0, 0);
-        check("BI_n low overrides LT_n low (blank wins)", ALL_OFF, 1'b0);
+        // --- Ripple-blanking boundary (code == 0 only) ---------------------
+        check("RBI_n low blanks code 0",             4'd0, 1'b1, 1'b0, 1'b1, ALL_OFF, 1'b0);
+        // Code 1 is the adjacent code: ripple blanking must not reach it.
+        check("RBI_n low leaves code 1 decoded",     4'd1, 1'b1, 1'b0, 1'b1, DIG_1,  1'b1);
+        check("RBI_n high decodes code 0",           4'd0, 1'b1, 1'b1, 1'b1, DIG_0,  1'b1);
+        // Highest code with RBI_n low: still a plain decode, RBO_n stays high.
+        check("RBI_n low leaves code 15 decoded",    4'd15, 1'b1, 1'b0, 1'b1, CODE_15, 1'b1);
 
-        // BI_n dominates a valid decode of the brightest code (8).
-        apply(1, 0, 0, 0, 1, 1, 0);
-        check("BI_n low overrides decode of code 8", ALL_OFF, 1'b0);
+        // --- Blank-versus-decode aliasing ---------------------------------
+        // Code 15 drives all segments off, but it is NOT a blank: RBO_n = 1
+        // distinguishes it from the BI_n / ripple-blank cases above.
+        check("code 15 all-off but RBO_n high",      4'd15, 1'b1, 1'b1, 1'b1, ALL_OFF, 1'b1);
+        // Code 8 lights all segments, but it is NOT lamp test; same pattern,
+        // reached through the decode path.
+        check("code 8 all-on via decode",            4'd8, 1'b1, 1'b1, 1'b1, DIG_8,  1'b1);
 
-        // LT_n dominates ripple blanking when BI/RBO node is high.
-        apply(0, 0, 0, 0, 0, 0, 1);
-        check("LT_n low overrides RBI_n low at code 0", ALL_ON, 1'b1);
+        // --- BCD / non-BCD boundary ---------------------------------------
+        check("last valid BCD code 9",               4'd9, 1'b1, 1'b1, 1'b1, DIG_9,  1'b1);
+        check("first non-BCD code 10",               4'd10, 1'b1, 1'b1, 1'b1, CODE_10, 1'b1);
 
-        // LT_n also dominates a normal decode.
-        apply(0, 1, 0, 1, 0, 1, 1);
-        check("LT_n low overrides decode of code 5", ALL_ON, 1'b1);
+        // --- Transitions between input states -----------------------------
+        // Releasing BI_n must restore the decode of the code still applied.
+        check("pre-blank decode of code 5",          4'd5, 1'b1, 1'b1, 1'b1, DIG_5,  1'b1);
+        check("blank applied over code 5",           4'd5, 1'b1, 1'b1, 1'b0, ALL_OFF, 1'b0);
+        check("decode restored after blank release", 4'd5, 1'b1, 1'b1, 1'b1, DIG_5,  1'b1);
 
-        // --- Ripple-blanking boundary: only code 0 responds -------------
+        // Releasing lamp test with BI_n low leaves the part blanked, not decoded.
+        check("lamp test then blank still blank",    4'd5, 1'b0, 1'b1, 1'b0, ALL_OFF, 1'b0);
+        check("lamp test released while blanked",    4'd5, 1'b1, 1'b1, 1'b0, ALL_OFF, 1'b0);
 
-        apply(0, 0, 0, 0, 1, 0, 1);
-        check("RBI_n low at code 0 blanks and pulls RBO_n low", ALL_OFF, 1'b0);
+        // Walking the code inputs while ripple blanking is armed: only the
+        // all-zero code blanks, and RBO_n follows on every transition.
+        check("armed RBI: code 0 blanks",            4'd0, 1'b1, 1'b0, 1'b1, ALL_OFF, 1'b0);
+        check("armed RBI: code 1 decodes",           4'd1, 1'b1, 1'b0, 1'b1, DIG_1,  1'b1);
+        check("armed RBI: back to code 0 blanks",    4'd0, 1'b1, 1'b0, 1'b1, ALL_OFF, 1'b0);
+        check("armed RBI: code 8 decodes",           4'd8, 1'b1, 1'b0, 1'b1, DIG_8,  1'b1);
+        check("armed RBI: back to code 0 blanks",    4'd0, 1'b1, 1'b0, 1'b1, ALL_OFF, 1'b0);
 
-        // Code 1 is the immediate neighbour of the response condition.
-        apply(0, 0, 0, 1, 1, 0, 1);
-        check("RBI_n low at code 1 still decodes '1'", ~7'b0110000, 1'b1);
-
-        // Code 0 with RBI_n high must decode zero (segment g off).
-        apply(0, 0, 0, 0, 1, 1, 1);
-        check("RBI_n high at code 0 decodes '0'", ~7'b1111110, 1'b1);
-
-        // --- Numeric code boundaries ------------------------------------
-
-        apply(1, 0, 0, 1, 1, 1, 1);
-        check("code 9 (last decimal digit)", ~7'b1110011, 1'b1);
-
-        apply(1, 0, 1, 0, 1, 1, 1);
-        check("code 10 (first non-decimal code)", ~7'b0001101, 1'b1);
-
-        apply(1, 1, 1, 1, 1, 1, 1);
-        check("code 15 (all segments off, RBO_n high)", ALL_OFF, 1'b1);
-
-        // Code 15 blanked-by-BI looks identical on segments but not on RBO_n.
-        apply(1, 1, 1, 1, 1, 1, 0);
-        check("code 15 with BI_n low distinguished by RBO_n", ALL_OFF, 1'b0);
-
-        // --- Transitions between input states ---------------------------
-
-        // Walk 15 -> 0 -> 15 and confirm the decoder is purely combinational
-        // (no state carried across the boundary codes).
-        apply(1, 1, 1, 1, 1, 1, 1);
-        apply(0, 0, 0, 0, 1, 1, 1);
-        check("transition 15 -> 0 settles to '0'", ~7'b1111110, 1'b1);
-        apply(1, 1, 1, 1, 1, 1, 1);
-        check("transition 0 -> 15 settles to blank", ALL_OFF, 1'b1);
-
-        // Release blanking and confirm the previous decode is restored.
-        apply(0, 1, 1, 0, 1, 1, 1);   // code 6
-        check("code 6 before blanking", ~7'b0011111, 1'b1);
-        apply(0, 1, 1, 0, 1, 1, 0);
-        check("code 6 blanked by BI_n", ALL_OFF, 1'b0);
-        apply(0, 1, 1, 0, 1, 1, 1);
-        check("code 6 restored after BI_n release", ~7'b0011111, 1'b1);
-
-        // Lamp test asserted then released while sitting on code 0 with
-        // RBI_n low: output must fall back to the ripple-blanked state.
-        apply(0, 0, 0, 0, 0, 0, 1);
-        check("lamp test at code 0 with RBI_n low", ALL_ON, 1'b1);
-        apply(0, 0, 0, 0, 1, 0, 1);
-        check("lamp test released -> ripple blanked again", ALL_OFF, 1'b0);
-
-        // RBI_n toggling under lamp test must not disturb the all-on state.
-        apply(0, 0, 0, 0, 0, 1, 1);
-        check("lamp test with RBI_n high", ALL_ON, 1'b1);
-
-        // A single-bit input change across the 7/8 boundary (D rising).
-        apply(0, 1, 1, 1, 1, 1, 1);
-        check("code 7 before D rises", ~7'b1110000, 1'b1);
-        apply(1, 0, 0, 0, 1, 1, 1);
-        check("code 8 after D rises", ~7'b1111111, 1'b1);
-
-        $display("=== %0d checks, %0d failures ===", checks, failures);
-        if (failures == 0)
-            $display("RESULT: ALL EDGE-CASE CHECKS PASSED");
+        $display("=== sn5446a_tb_extra: %0d passed, %0d failed ===",
+                 pass_count, fail_count);
+        if (fail_count != 0)
+            $display("RESULT: FAIL");
         else
-            $display("RESULT: %0d EDGE-CASE CHECK(S) FAILED", failures);
+            $display("RESULT: PASS");
         $finish;
     end
 
