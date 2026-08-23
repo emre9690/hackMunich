@@ -2,7 +2,7 @@
 
 DEVIN-DRAFTED, NOT YET HUMAN-REVIEWED. Not ground truth until a human approves it.
 
-Source document: drafts/sn5446a_datasheet.PDF -- TI SDLS111, "SN5446A, '47A, '48,
+Source document: drafts/sn5446a_datasheet.pdf -- TI SDLS111, "SN5446A, '47A, '48,
 SN54LS47, 'LS48, 'LS49 ... BCD-TO-SEVEN-SEGMENT DECODERS/DRIVERS", March 1974,
 revised March 1988. All page references below are to that PDF.
 
