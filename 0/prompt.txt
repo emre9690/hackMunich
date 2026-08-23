@@ -1,0 +1,18 @@
+ok it works, is SN5446A legacy at all
+
+---
+
+what is the point of this a
+b
+c
+d
+e
+f
+g
+RBO_n 
+
+stuff? how does it change from chip to chip. can't we show data? should we show data?
+
+---
+
+can you show data somehow in this diagram
