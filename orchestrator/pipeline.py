@@ -136,6 +136,8 @@ def create_and_poll(
     budget: SessionBudget,
     structured_output_schema: dict | None = None,
     timeout_override_seconds: float | None = None,
+    resume_handle: "devin_client.SessionHandle | None" = None,
+    resume_message: str | None = None,
 ) -> tuple[devin_client.SessionState | None, devin_client.SessionHandle]:
     """Create a Devin session and poll it to completion.
 
@@ -144,15 +146,36 @@ def create_and_poll(
     propagate failure. Otherwise returns (state, handle) for the caller to
     interpret: status_enum "blocked" is NOT treated as failure here (see
     below), so the caller must check the actual git branch state itself.
-    """
-    emit(chip=chip_id, branch=branch, agent=agent, stage=stage, attempt=attempt,
-         status="running", detail="creating Devin session")
 
+    If `resume_handle` and `resume_message` are both given, this tries
+    sending `resume_message` as a follow-up to that EXISTING session
+    instead of paying fresh VM-boot + clone cost and making Devin re-derive
+    a design it just wrote -- used by the Coder retry loop. `prompt` is
+    still required and used verbatim as the fallback if resuming fails
+    (API doesn't support it, session can't be resumed, etc.) -- best-effort
+    only, never a hard dependency.
+    """
     budget.acquire()
     try:
-        handle = devin_client.create_session(
-            prompt, title=title, structured_output_schema=structured_output_schema,
-        )
+        handle = None
+        if resume_handle is not None and resume_message is not None:
+            emit(chip=chip_id, branch=branch, agent=agent, stage=stage, attempt=attempt,
+                 status="running", session_id=resume_handle.session_id, session_url=resume_handle.url,
+                 detail="resuming previous session with fix-up instructions (skips re-clone)")
+            try:
+                devin_client.send_message(resume_handle.session_id, resume_message)
+                handle = resume_handle
+            except devin_client.DevinAPIError as e:
+                emit(chip=chip_id, branch=branch, agent=agent, stage=stage, attempt=attempt,
+                     status="running",
+                     detail=f"could not resume previous session ({e!r}); starting a fresh one instead")
+
+        if handle is None:
+            emit(chip=chip_id, branch=branch, agent=agent, stage=stage, attempt=attempt,
+                 status="running", detail="creating Devin session")
+            handle = devin_client.create_session(
+                prompt, title=title, structured_output_schema=structured_output_schema,
+            )
         emit(chip=chip_id, branch=branch, agent=agent, stage=stage, attempt=attempt,
              status="running", session_id=handle.session_id, session_url=handle.url,
              detail="session created, polling for completion")
@@ -263,7 +286,9 @@ Task:
 {"--- spec/chips/" + chip_id + ".py ---" + chr(10) + golden_model_source + chr(10) + "--- end ---" if golden_model_source else "(not found locally when this prompt was built -- read it from the repo path above)"}
 4. Commit `rtl/{chip_id}.v` on branch `{branch}` with a clear message and
    push it to origin.
-5. Set structured_output to JSON containing at least:
+5. End your FINAL message (there is no separate structured-output tool or
+   action -- it is extracted from the text of your last message) with
+   exactly this JSON:
    {{"commit_sha": "<sha of your commit>", "file": "rtl/{chip_id}.v"}}
 
 Do not create a pull request. Do not modify any file outside rtl/{chip_id}.v.
@@ -289,6 +314,27 @@ Then commit and push the fix to `{branch}`.
     return prompt
 
 
+def _coder_retry_message(chip_id: str, branch: str, failing_detail: str) -> str:
+    """Follow-up message sent to an EXISTING Coder session that's being
+    resumed for a retry -- deliberately short. Unlike _coder_prompt, it
+    doesn't repeat clone instructions, port lists, or the golden model: the
+    session already has the repo cloned and already wrote the design once,
+    so re-explaining any of that just costs time re-deriving context it
+    already has."""
+    return f"""\
+The external harness re-ran your last commit on branch `{branch}` and found
+these exact mismatches in rtl/{chip_id}.v -- fix them (no need to re-clone
+or re-read the golden model, you already have both):
+
+{failing_detail}
+
+Commit and push the fix to `{branch}`. End your FINAL message with exactly
+this JSON (there is no separate structured-output tool -- it's extracted
+from your last message's text):
+{{"commit_sha": "<sha of your fix commit>", "file": "rtl/{chip_id}.v"}}
+"""
+
+
 def run_coder_loop(
     chip_id: str, run_id: int, budget: SessionBudget, *, deadline: float | None = None,
 ) -> tuple[bool, str]:
@@ -303,6 +349,12 @@ def run_coder_loop(
     ensure_remote_branch(branch)
 
     failing_detail: str | None = None
+    # Set after a successful attempt that still failed verification, so the
+    # NEXT attempt can try resuming that same session (skip re-clone, skip
+    # re-deriving the design) instead of paying fresh VM-boot cost. Cleared
+    # whenever a resume is attempted -- one resume attempt per prior
+    # session, never retried against the same handle twice.
+    resume_handle: devin_client.SessionHandle | None = None
 
     for attempt in range(1, MAX_ATTEMPTS_PER_CHIP + 1):
         if deadline is not None and time.monotonic() >= deadline:
@@ -312,7 +364,13 @@ def run_coder_loop(
                         f"fail-fix loop here")
             return False, branch
 
+        # Always build the fresh-session prompt too -- it's the fallback if
+        # resuming fails, and cheap (string formatting only, no API call).
         prompt = _coder_prompt(spec, chip_id, branch, failing_detail)
+        resume_message = (
+            _coder_retry_message(chip_id, branch, failing_detail)
+            if resume_handle is not None else None
+        )
         per_attempt_timeout = None
         if deadline is not None:
             per_attempt_timeout = max(20.0, deadline - time.monotonic())
@@ -320,7 +378,9 @@ def run_coder_loop(
             chip_id=chip_id, branch=branch, agent="coder", stage="generate", attempt=attempt,
             prompt=prompt, title=f"{chip_id} coder attempt {attempt}", budget=budget,
             timeout_override_seconds=per_attempt_timeout,
+            resume_handle=resume_handle, resume_message=resume_message,
         )
+        resume_handle = None
         if state is None:
             return False, branch
 
@@ -341,6 +401,7 @@ def run_coder_loop(
             return True, branch
 
         failing_detail = event["detail"]
+        resume_handle = handle
 
     return False, branch
 
@@ -381,7 +442,9 @@ Task:
 3. Do NOT modify rtl/{chip_id}.v itself, and do NOT modify anything under
    /spec/ (human-owned ground truth -- you may read it, never edit it).
 4. Commit `rtl/{chip_id}_tb_extra.v` on branch `{branch}` and push it.
-5. Set structured_output to JSON: {{"commit_sha": "<sha>", "file": "rtl/{chip_id}_tb_extra.v"}}
+5. End your FINAL message (there is no separate structured-output tool --
+   it is extracted from your last message's text) with exactly this JSON:
+   {{"commit_sha": "<sha>", "file": "rtl/{chip_id}_tb_extra.v"}}
 
 Do not create a pull request. Your testbench is supplementary documentation;
 the external harness (already run, and re-run after your commit) remains
@@ -462,7 +525,9 @@ Task:
    (never the module name or port names), and comments. Do not touch
    rtl/{chip_id}_tb_extra.v or anything under /spec/.
 3. Commit the cleaned-up rtl/{chip_id}.v on branch `{branch}` and push it.
-4. Set structured_output to JSON: {{"commit_sha": "<sha>", "file": "rtl/{chip_id}.v"}}
+4. End your FINAL message (there is no separate structured-output tool --
+   it is extracted from your last message's text) with exactly this JSON:
+   {{"commit_sha": "<sha>", "file": "rtl/{chip_id}.v"}}
 
 Do not create a pull request. The external harness will re-run after your
 commit to confirm behavior is unchanged -- if it fails, this cleanup will be

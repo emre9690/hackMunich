@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { branchFileDownloadUrl, fetchBranchFile } from "../lib/api";
+import { fetchBranchFile } from "../lib/api";
 import { tokenizeLine } from "../lib/verilogHighlight";
 
 // Lines are actually added to the DOM one at a time (not just CSS-faded in
@@ -79,13 +79,6 @@ export default function CodePanel({ events }) {
         <span className="code-panel-live-dot" aria-hidden="true" />
         <span className="code-panel-agent">{latest.agent}</span> just wrote{" "}
         <span className="code-panel-path">{path}</span>
-        <a
-          className="code-panel-download"
-          href={branchFileDownloadUrl(latest.branch, path)}
-          download
-        >
-          ↓ Download
-        </a>
       </div>
       <pre className="code-panel-body">
         {shownLines.map((line, i) => (

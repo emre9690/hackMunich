@@ -34,12 +34,6 @@ export async function fetchBranchFile(branch, path) {
   return res.text();
 }
 
-export function branchFileDownloadUrl(branch, path) {
-  return apiUrl(
-    `/api/branch-file/download?branch=${encodeURIComponent(branch)}&path=${encodeURIComponent(path)}`
-  );
-}
-
 export async function fetchChips() {
   const res = await fetch(apiUrl("/api/chips"));
   if (!res.ok) throw new Error(`fetch chips failed: ${res.status}`);

@@ -145,10 +145,10 @@ export default function App() {
           <PipelineGraph events={events} starting={launching} />
           <SchematicPanel events={events} />
           <ActivityFeed events={events} />
-          <AgentStatus events={events} />
         </section>
         <section className="app-proof-section">
           <ProofPanel events={events} />
+          <AgentStatus events={events} />
         </section>
       </main>
 

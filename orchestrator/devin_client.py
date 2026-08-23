@@ -141,6 +141,18 @@ def get_session(session_id: str) -> SessionState:
     )
 
 
+def send_message(session_id: str, message: str) -> None:
+    """Sends a follow-up message to an existing (idle/finished) session,
+    used for the Coder retry loop so a fix-attempt resumes the SAME session
+    -- same VM, same clone, same context -- instead of paying fresh
+    boot+clone cost and making Devin re-derive a design it just wrote.
+    Callers must treat this as best-effort: if it 404s (this API surface
+    doesn't support it, or the session can't be resumed) the caller should
+    fall back to create_session for a fresh session rather than fail the
+    whole retry."""
+    _request("POST", f"/session/{session_id}/message", json_body={"message": message})
+
+
 def _get_session_resilient(session_id: str) -> SessionState:
     """Like get_session, but absorbs sustained transient network failures
     instead of letting the first one (or first few) abandon a session that

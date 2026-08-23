@@ -384,8 +384,9 @@ session, ever, and it will NOT be resumed:
   a plain 0/1 interface can't represent, ambiguous pinout, etc.), that is
   your FINAL conclusion, not an open question -- decide "blocked" and
   end the session yourself. Do not leave it open or waiting.
-- You MUST set structured_output before ending, in exactly one of these
-  two shapes:
+- You MUST end your FINAL message with structured output in exactly one of
+  these two JSON shapes (there is no separate structured-output tool or
+  action -- it is extracted from the text of your last message):
   - success: {{"status": "drafted", "file": "drafts/{chip_id}.py", "commit_sha": "<sha>"}}
   - can't proceed: {{"status": "blocked", "blocked_reason": "<a complete,
     specific, final explanation of exactly what's missing or unsupported

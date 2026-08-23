@@ -384,6 +384,12 @@ body {
   box-shadow: var(--shadow);
 }
 
+.agent-status-list {
+  max-height: 320px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
 .agent-status h3,
 .proof-panel h3 {
   margin: 0 0 12px;
@@ -674,24 +680,6 @@ body {
 .code-panel-path {
   color: var(--text);
   font-family: var(--mono);
-}
-
-.code-panel-download {
-  margin-left: auto;
-  color: var(--accent);
-  text-decoration: none;
-  font-family: var(--sans);
-  font-size: 12px;
-  font-weight: 600;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 3px 9px;
-  flex-shrink: 0;
-}
-
-.code-panel-download:hover {
-  background: rgba(37, 99, 235, 0.06);
-  border-color: var(--accent);
 }
 
 .code-panel-loading {

@@ -92,13 +92,20 @@ export default function SchematicPanel({ events }) {
         height={Math.min(bodyHeight, 360)}
         preserveAspectRatio="xMidYMid meet"
       >
+        {/* Trace lines only span the actual stub (fixed STUB_LEN), never the
+            label region -- labels sit in the open space past the stub with
+            a clean gap, so a long name (e.g. RBO_n) can never end up
+            visually overlapping the dashed line the way it did when the
+            line ran the full width behind wherever the text happened to
+            land. */}
         {ports.inputs.map((name, i) => {
           const y = pinY(i, ports.inputs.length);
+          const stubStart = bodyX - STUB_LEN;
           return (
             <g key={`in-${name}`} className="schematic-pin" style={{ animationDelay: `${i * 90}ms` }}>
-              <line x1={0} y1={y} x2={bodyX} y2={y} className="schematic-trace" />
+              <line x1={stubStart} y1={y} x2={bodyX} y2={y} className="schematic-trace" />
               <circle cx={bodyX} cy={y} r={2.5} className="schematic-pad" />
-              <text x={STUB_LEN - 6} y={y - 4} textAnchor="start" className="schematic-label">
+              <text x={stubStart - 6} y={y - 4} textAnchor="end" className="schematic-label">
                 {name}
               </text>
             </g>
@@ -107,12 +114,13 @@ export default function SchematicPanel({ events }) {
 
         {ports.outputs.map((name, i) => {
           const y = pinY(i, ports.outputs.length);
-          const x2 = bodyX + BODY_WIDTH;
+          const pinEdge = bodyX + BODY_WIDTH;
+          const stubEnd = pinEdge + STUB_LEN;
           return (
             <g key={`out-${name}`} className="schematic-pin" style={{ animationDelay: `${i * 90 + 120}ms` }}>
-              <line x1={x2} y1={y} x2={width} y2={y} className="schematic-trace" />
-              <circle cx={x2} cy={y} r={2.5} className="schematic-pad" />
-              <text x={x2 + STUB_LEN - 6} y={y - 4} textAnchor="end" className="schematic-label">
+              <line x1={pinEdge} y1={y} x2={stubEnd} y2={y} className="schematic-trace" />
+              <circle cx={pinEdge} cy={y} r={2.5} className="schematic-pad" />
+              <text x={stubEnd + 6} y={y - 4} textAnchor="start" className="schematic-label">
                 {name}
               </text>
             </g>
