@@ -4,7 +4,10 @@ DEVIN-DRAFTED, NOT YET HUMAN-REVIEWED. Not ground truth until a human approves i
 
 Source document: drafts/sn5446a_datasheet.pdf -- TI SDLS111, "SN5446A, '47A, '48,
 SN54LS47, 'LS48, 'LS49 ... BCD-TO-SEVEN-SEGMENT DECODERS/DRIVERS", March 1974,
-revised March 1988. All page references below are to that PDF.
+revised March 1988. All page references below are to that PDF. The PDF pages are
+image-only; the pinout (page 1) and the '46A/'47A/'LS47 function table T1 with its
+four notes (page 3) were read from the rendered pages, cell by cell, not from a
+text layer.
 
 Ports (pinout, page 1, J/N package top view; pin numbers in parentheses):
   Inputs:  A (7), B (1), C (2), D (6)  - BCD input, A = LSB, D = MSB
