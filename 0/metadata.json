@@ -1,0 +1,122 @@
+{
+  "cli_version": "0.10.2",
+  "checkpoint_id": "01M0PEXJF1K2P64E6FYPBB3HTH",
+  "session_id": "30d3ac5b-c951-485b-896a-483d3e28c703",
+  "strategy": "manual-commit",
+  "created_at": "2026-08-23T04:44:16.214369Z",
+  "branch": "main",
+  "checkpoints_count": 10,
+  "save_step_count": 1,
+  "files_touched": [
+    ".gitignore",
+    "orchestrator/devin_client.py",
+    "orchestrator/pipeline.py",
+    "orchestrator/spec_drafter.py",
+    "server/app.py",
+    "ui/src/components/SchematicPanel.jsx",
+    "ui/src/index.css",
+    "ui/src/lib/api.js"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-sonnet-5",
+  "turn_id": "a67fdc92efe0",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 1348,
+    "cache_creation_tokens": 932446,
+    "cache_read_tokens": 310302166,
+    "output_tokens": 487866,
+    "api_call_count": 674
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_01DfRZ82r3LWyKNJUTgSVgcV",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "run"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "a67fdc92efe0",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 46,
+        "end": 47,
+        "entry_ids": [
+          "63cfffd9-d91d-46f3-81da-afd9c1da0091"
+        ],
+        "tool_use_id": "toolu_01DfRZ82r3LWyKNJUTgSVgcV"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01DfRZ82r3LWyKNJUTgSVgcV"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: run",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 65
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-08-23T04:44:15.238437Z",
+    "agent_lines": 376,
+    "agent_removed": 65,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 376,
+    "total_lines_changed": 441,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 4450,
+      "user_lines_removed": 0,
+      "agent_lines_added": 376,
+      "agent_lines_removed": 65,
+      "user_added_per_file": {
+        ".agents/skills/address-findings/SKILL.md": 155,
+        ".agents/skills/explain/SKILL.md": 34,
+        ".agents/skills/recall/SKILL.md": 123,
+        ".agents/skills/replay/SKILL.md": 141,
+        ".agents/skills/review/SKILL.md": 220,
+        ".agents/skills/review/references/review-rules.md": 87,
+        ".agents/skills/search/SKILL.md": 105,
+        ".agents/skills/session-crosslink/SKILL.md": 141,
+        ".agents/skills/session-handoff/SKILL.md": 137,
+        ".agents/skills/session-to-skill/SKILL.md": 210,
+        ".agents/skills/teach/SKILL.md": 130,
+        ".agents/skills/using-entire/SKILL.md": 152,
+        ".agents/skills/what-happened/SKILL.md": 333,
+        ".codex/hooks.json": 88,
+        "agent/skills/address-findings/SKILL.md": 148,
+        "agent/skills/explain/SKILL.md": 31,
+        "agent/skills/recall/SKILL.md": 121,
+        "agent/skills/replay/SKILL.md": 139,
+        "agent/skills/review/SKILL.md": 214,
+        "agent/skills/review/references/review-rules.md": 87,
+        "agent/skills/search/SKILL.md": 103,
+        "agent/skills/session-crosslink/SKILL.md": 139,
+        "agent/skills/session-handoff/SKILL.md": 135,
+        "agent/skills/session-to-skill/SKILL.md": 208,
+        "agent/skills/teach/SKILL.md": 128,
+        "agent/skills/using-entire/SKILL.md": 147,
+        "agent/skills/what-happened/SKILL.md": 325,
+        "skills-lock.json": 77,
+        "spec/chips/bcd7447.py": 130,
+        "spec/chips/chip_skibidi.py": 138,
+        "spec/chips/ski.py": 124
+      }
+    }
+  ]
+}

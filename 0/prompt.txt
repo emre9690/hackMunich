@@ -1,0 +1,72 @@
+ok it works, is SN5446A legacy at all
+
+---
+
+what is the point of this a
+b
+c
+d
+e
+f
+g
+RBO_n 
+
+stuff? how does it change from chip to chip. can't we show data? should we show data?
+
+---
+
+can you show data somehow in this diagram
+
+---
+
+drafting failed: CalledProcessError(1, ['git', 'commit', '-m', 'Add uploaded datasheet for sn5446a'])
+
+---
+
+Devin declined to draft this rather than invent a golden model it couldn't verify against the datasheet. Its full reasoning:
+
+drafting failed: CalledProcessError(1, ['git', 'commit', '-m', 'Add uploaded datasheet for sn5446a'])
+
+---
+
+drafting failed: CalledProcessError(1, ['git', 'push', 'origin', 'drafts/sn5446a'])
+
+---
+
+what is this cycling of live vector
+
+---
+
+do you think this rotating thing is good of 8
+
+---
+
+i don't like the rotating color stuff, can you display information more formally like so the judges like it
+
+---
+
+this bcd_to_7seg_sn5446a overflows text wise can you make font a little smaller
+
+---
+
+Error: {"detail":"approved locally but failed to push to origin: git commit failed for 'sn5446a': On branch main\nYour branch is up to date with 'origin/main'.\n\nChanges not staged for commit:\n (use \"git add <file>...\" to update what will be committed)\n (use \"git restore <file>...\" to discard changes in working directory)\n\tmodified: orchestrator/spec_drafter.py\n\tmodified: server/app.py\n\tmodified: ui/src/components/SchematicPanel.jsx\n\tmodified: ui/src/index.css\n\tmodified: ui/src/lib/api.js\n\nUntracked files:\n (use \"git add <file>...\" to include in what will be committed)\n\t.agents/\n\t.claude/skills/\n\t.codex/\n\tagent/\n\tskills-lock.json\n\tspec/chips/bcd7447.py\n\tspec/chips/chip_skibidi.py\n\tspec/chips/ski.py\n\nno changes added to commit (use \"git add\" and/or \"git commit -a\")\n"}
+
+---
+
+to what extent are you using devin's full capabilities at the moment
+
+---
+
+opinions on implementing tags and playbooks
+
+---
+
+its just that this is a hackathon using cognition so it would likely be a good idea to make this more 'devinised' in one way or another
+
+---
+
+yes, do all this now
+
+---
+
+push this as a devinized version that works, make note of it
