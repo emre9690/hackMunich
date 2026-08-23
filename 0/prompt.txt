@@ -16,3 +16,7 @@ stuff? how does it change from chip to chip. can't we show data? should we show 
 ---
 
 can you show data somehow in this diagram
+
+---
+
+drafting failed: CalledProcessError(1, ['git', 'commit', '-m', 'Add uploaded datasheet for sn5446a'])
