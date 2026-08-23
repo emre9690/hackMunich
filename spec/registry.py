@@ -12,7 +12,7 @@ from typing import Callable, Iterator
 # Chip filenames (74138, 82s100) start with a digit, so they aren't valid
 # Python identifiers and can't be reached with a literal `import` statement.
 # importlib.import_module works fine with such dotted names.
-_KNOWN_CHIP_IDS = ("sn5546a", )
+_KNOWN_CHIP_IDS = ("sn5446a", )
 
 
 @dataclass(frozen=True)
