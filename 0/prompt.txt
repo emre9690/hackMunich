@@ -1,0 +1,39 @@
+Devin declined to draft this rather than invent a golden model it couldn't verify against the datasheet. Its full reasoning:"The datasheet (Motorola MC14495-1 hexadecimal-to-seven-segment latch/decoder LED driver, 5 scanned image-only pages, OCR'd/read via rendered page images) describes a chip that cannot be expressed in this repo's golden-model interface, which requires a pure combinational golden_fn over 1-bit 0/1 ports exhaustively enumerated across all inputs. Two hard incompatibilities: (1) SEQUENTIAL STATE - inputs A,B,C,D (pins 5,6,9,10) feed a 4-bit storage latch controlled by Latch Enable (LE, pin 7). Per 'INPUT/OUTPUT FUNCTIONS - LATCH ENABLE (LE; PIN 7)' on datasheet page 3-23: data passes through and is decoded only while LE is low; it is latched on the rising edge of LE and 'will remain stored as long as LE is high'. The published TRUTH TABLE (page 3-20) is explicitly labeled '(LE = Low)' only, so for LE = 1 the segment outputs depend on previously stored data, i.e. on history, not on the current input vector. A pure function of {A,B,C,D,LE} therefore cannot define the outputs for the half of the input space where LE = 1, and the harness's exhaustive vector enumeration would compare against undefined behavior. (2) HIGH-IMPEDANCE OUTPUT - output j (pin 11) is open-drain: per 'OUTPUT (j; PIN 11)' on page 3-23 and the truth table's ':' column, it goes LOW only when A=B=C=D=1 (display 'F') and is in the high-impedance (Open) state for all other 15 codes. 'Open' is not logic 1 (in the typical application circuit on page 3-24 it is an open-drain pull-down driving an indicator LED), so it cannot be represented by a plain 1-bit 0/1 Port. No guess was substituted: the segment decode table for LE=low was read in full and is unambiguous, but the interface as specified (combinational golden_fn, 1-bit binary ports only) cannot represent the latch's stored state or the Hi-Z output. Resolving this requires a human decision on how to extend the interface, e.g. adding a clocked/stateful spec form plus a tri-state or separate output-enable representation for pin 11, or narrowing the modeled scope to LE tied low and dropping/redefining pin j. Nothing was committed to branch drafts/gedfg; drafts/gedfg_datasheet.pdf was left untouched and /spec/ was not modified."
+
+why did it do this, do not fix yet. this is supposed to be a good use case
+
+---
+
+what can i choose that is discontinued and has something that can work with this hackathon
+
+---
+
+is the sn7448 discontinued
+
+---
+
+wait so sn74ls47dr is good to use?
+
+---
+
+sn5446a?
+
+---
+
+is sn5446a and sn7446a the same, it has the same doc
+
+---
+
+can i use
+
+---
+
+the sn5446a i mean
+
+---
+
+why doesnt it work The rendered datasheet cannot be represented faithfully by the required plain 0/1 INPUTS/OUTPUTS interface: page 2 specifies open-collector segment-driver outputs whose inactive state is open/high-impedance and shows BI/RBO as one bidirectional node; page 3 defines BI/RBO as wired-AND logic serving simultaneously as blanking input and ripple-blanking output. The interface supports neither Hi-Z nor a bidirectional port. The PDF also covers multiple incompatible variants ('46A/'47A/LS47 active-low, '48/LS48 active-high, and LS49 with different controls) without selecting which variant frearerf denotes. No draft file was created or committed.
+
+---
+
+the chip id determines ?
