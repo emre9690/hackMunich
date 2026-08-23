@@ -1,0 +1,17 @@
+i need you to summarize our current infrastructure so i can pass this to devin so that it can find bottlenecks and suggest ways to utilise itself better
+
+---
+
+paste some text that i can copy
+
+---
+
+Ignoring point (1), the coder agent in devin reckons the following will speed it up. please decide whether you think it is worth it and if so carry it out. DO NOT DO (1). THIS IS A WASTE OF TIME. Ok here is the response from devin: Full analysis attached, grounded in what actually happened inside the ski/7447 coder session I just ran.
+
+Top four: (1) drop the Testbencher from the timed path — it's documentation, not verification, and costs ~60-90s of a 240s budget; (2) run retries as follow-up messages in the same coder session instead of a fresh one — saves VM boot + clone and, more importantly, stops me re-deriving the design I just wrote; (3) prewarm a coder session before the demo click so the ~30-60s startup is off the critical path; (4) your prompt's "Set structured_output to JSON" cost me two tool calls hunting for a tool that doesn't exist — structured output is extracted from my final message, so just tell me to end with the JSON.
+
+On your explicit questions: blueprints/snapshots are API-creatable (v3beta1 create + explicit build, then snapshot_id on session create) but need a one-time dashboard step to mint a service user with ManageAccountSnapshots — and I'd rank it low ROI for the coder, since you install nothing and clone 300KB. devin_mode (lite/fast/ultra) exists only on the v3 create endpoint, not the v1 one you're using; I'd use lite for attempt 1 and a stronger mode for retries rather than lite everywhere.
+
+---
+
+fix ui for me. make the Live Agent Status div on the right side, so it all almost fits into a page without scrolling. make the RBO_n pin more to the right so its not covered by other div. remove the download of solely the code, because the zip already contains it. do not remove the zip download at all or change that at all tho.
